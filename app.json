@@ -1,4 +1,5 @@
 {
   "name": "WorkforceTracker",
-  "displayName": "WorkforceTracker"
+  "displayName": "WorkforceTracker",
+  "entryFile": "index.js"
 }

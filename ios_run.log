@@ -1,0 +1,3 @@
+info A dev server is already running for this project on port 8081.
+info Found Xcode workspace "WorkforceTracker.xcworkspace"
+info Building (using "xcodebuild -workspace WorkforceTracker.xcworkspace -configuration Debug -scheme WorkforceTracker -destination id=B1940DC6-44B6-4A0D-A25E-DA90BC05A662")

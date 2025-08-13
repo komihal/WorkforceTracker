@@ -8,28 +8,63 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
-
 target 'WorkforceTracker' do
-  config = use_native_modules!
+  # config = use_native_modules!
 
   use_react_native!(
-    :path => config[:reactNativePath],
-    # An absolute path to your application root.
+    :path => '../node_modules/react-native',
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
   post_install do |installer|
-    # https://github.com/facebook/react-native/blob/main/packages/react-native/scripts/react_native_pods.rb#L197-L202
     react_native_post_install(
       installer,
-      config[:reactNativePath],
+      '../node_modules/react-native',
       :mac_catalyst_enabled => false,
-      # :ccache_enabled => true
+      :ccache_enabled => true
     )
+
+    # helper для вычищения флага
+    def strip_flag(val, flag)
+      return val if val.nil?
+      arr = val.is_a?(Array) ? val : val.to_s.split(' ')
+      (arr - [flag]).uniq
+    end
+
+    # 1) Чиним все Pods-таргеты
+    installer.pods_project.targets.each do |t|
+      t.build_configurations.each do |bc|
+        bc.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        bc.build_settings['DEFINES_MODULE'] = 'NO'
+        bc.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
+        bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+        bc.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+
+        # Снимаем -Werror=return-type именно там, где валится Codegen/Providers
+        if t.name.include?('ReactCodegen') || t.name.include?('ReactAppDependencyProvider')
+          bc.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+          %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |key|
+            bc.build_settings[key] = strip_flag(bc.build_settings[key], '-Werror=return-type')
+          end
+        end
+
+        # (Не обязательно, но полезно)
+        if bc.name == 'Debug'
+          bc.build_settings['ONLY_ACTIVE_ARCH'] = 'YES'
+        end
+      end
+    end
+
+    # 2) Патчим и твой app-таргет (это важно для "non-modular..." в самом приложении)
+    installer.aggregate_targets.each do |agg|
+      agg.user_targets.each do |ut|
+        ut.build_configurations.each do |bc|
+          bc.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+          bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+          bc.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+          bc.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+        end
+      end
+    end
   end
 end
