@@ -1,5 +1,8 @@
 PODS:
   - boost (1.84.0)
+  - CocoaLumberjack (3.8.5):
+    - CocoaLumberjack/Core (= 3.8.5)
+  - CocoaLumberjack/Core (3.8.5)
   - DoubleConversion (1.1.6)
   - fast_float (8.0.0)
   - FBLazyVector (0.80.2)
@@ -1648,6 +1651,35 @@ PODS:
     - React-RCTFBReactNativeSpec
     - ReactCommon/turbomodule/core
     - SocketRocket
+  - react-native-image-picker (8.2.1):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-hermes
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - React-NativeModulesApple (0.80.2):
     - boost
     - DoubleConversion
@@ -2122,6 +2154,11 @@ PODS:
     - React-perflogger (= 0.80.2)
     - React-utils (= 0.80.2)
     - SocketRocket
+  - RNBackgroundFetch (4.2.8):
+    - React-Core
+  - RNBackgroundGeolocation (4.18.9):
+    - CocoaLumberjack (~> 3.8.5)
+    - React-Core
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
@@ -2167,6 +2204,7 @@ DEPENDENCIES:
   - React-logger (from `../node_modules/react-native/ReactCommon/logger`)
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
+  - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
   - React-perflogger (from `../node_modules/react-native/ReactCommon/reactperflogger`)
@@ -2198,11 +2236,14 @@ DEPENDENCIES:
   - ReactAppDependencyProvider (from `build/generated/ios`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
+  - RNBackgroundFetch (from `../node_modules/react-native-background-fetch`)
+  - RNBackgroundGeolocation (from `../node_modules/react-native-background-geolocation`)
   - SocketRocket (~> 0.7.1)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
   trunk:
+    - CocoaLumberjack
     - SocketRocket
 
 EXTERNAL SOURCES:
@@ -2287,6 +2328,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   React-microtasksnativemodule:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
+  react-native-image-picker:
+    :path: "../node_modules/react-native-image-picker"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-oscompat:
@@ -2349,11 +2392,16 @@ EXTERNAL SOURCES:
     :path: build/generated/ios
   ReactCommon:
     :path: "../node_modules/react-native/ReactCommon"
+  RNBackgroundFetch:
+    :path: "../node_modules/react-native-background-fetch"
+  RNBackgroundGeolocation:
+    :path: "../node_modules/react-native-background-geolocation"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
   boost: 7e761d76ca2ce687f7cc98e698152abd03a18f90
+  CocoaLumberjack: 6a459bc897d6d80bd1b8c78482ec7ad05dffc3f0
   DoubleConversion: cb417026b2400c8f53ae97020b2be961b59470cb
   fast_float: b32c788ed9c6a8c584d114d0047beda9664e7cc6
   FBLazyVector: 86588b5a1547e7a417942a08f49559b184e002c8
@@ -2393,6 +2441,7 @@ SPEC CHECKSUMS:
   React-logger: ea80169d826e0cd112fa4d68f58b2b3b968f1ecb
   React-Mapbuffer: a5d550d1add940ed2bc65b20dc1413407bf1a63f
   React-microtasksnativemodule: 5d00fefc19f0bc9a6432e5533683d6fc9c3da4e1
+  react-native-image-picker: df98fd6bf821b49ae97a383fd4adb1430f659a67
   React-NativeModulesApple: b22e6abb44d78270dfdfc7d85efe29e35e0333a7
   React-oscompat: 56d6de59f9ae95cd006a1c40be2cde83bc06a4e1
   React-perflogger: 0633844e495d8b34798c9bf0cb32ce315f1d5c9f
@@ -2424,9 +2473,11 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: 6c9197c1f6643633012ab646d2bfedd1b0d25989
   ReactCodegen: 9ea66ee246511816b72e9d6e380f884b7b3b99d7
   ReactCommon: 7aca047f2f453a7d7f0adeccb63810d61829235a
+  RNBackgroundFetch: 534f5bba01d1e45559aa7d53f42e00124378db93
+  RNBackgroundGeolocation: 766b46d3d0a7e9ba35bea6717ec2b479493e4add
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 1c52fbd270869e556504def7e94fffbf67f53f7b
 
-PODFILE CHECKSUM: aa325280abeac18f53d9342733324e8e6d847dec
+PODFILE CHECKSUM: b524c32cf7a95f8b72ed1ecbbd5d20f2ea537683
 
 COCOAPODS: 1.15.2

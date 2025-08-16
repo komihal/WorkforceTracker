@@ -1,1 +1,1 @@
-{ "new_arch_enabled": false }
+{ "new_arch_enabled": false, "ios_deploy_target": "13.4" }

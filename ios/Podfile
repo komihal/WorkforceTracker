@@ -9,20 +9,12 @@ platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
 target 'WorkforceTracker' do
-  # config = use_native_modules!
+  config = use_native_modules!
 
-  use_react_native!(
-    :path => '../node_modules/react-native',
-    :app_path => "#{Pod::Config.instance.installation_root}/.."
-  )
+  use_react_native!
 
   post_install do |installer|
-    react_native_post_install(
-      installer,
-      '../node_modules/react-native',
-      :mac_catalyst_enabled => false,
-      :ccache_enabled => true
-    )
+    react_native_post_install(installer)
 
     # helper для вычищения флага
     def strip_flag(val, flag)

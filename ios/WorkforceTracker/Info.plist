@@ -31,10 +31,16 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Камера нужна для фотографирования отметок смен и документов.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Фоновая геолокация нужна для отметки смен на строительной площадке.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Геолокация нужна для учёта присутствия на объекте и безопасности.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Доступ к галерее нужен для сохранения фотографий.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Доступ к галерее нужен для выбора фотографий документов.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIBackgroundModes</key>
