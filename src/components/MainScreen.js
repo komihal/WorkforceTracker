@@ -14,6 +14,8 @@ import punchService from '../services/punchService';
 import geoService from '../services/geoService';
 import fileUploadService from '../services/fileUploadService';
 import cameraService from '../services/cameraService';
+import backgroundService from '../services/backgroundService';
+import testAsyncStorage from '../../AsyncStorageTest';
 
 const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery, onNavigateToCameraTest }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -21,16 +23,25 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
   const [currentUser, setCurrentUser] = useState(null);
   const [geoDataCount, setGeoDataCount] = useState(0);
   const [lastLocation, setLastLocation] = useState(null);
+  const [backgroundStats, setBackgroundStats] = useState({ pendingPhotos: 0, pendingGeoData: 0, isRunning: false });
 
   useEffect(() => {
     const loadUserData = async () => {
       const user = await authService.getCurrentUser();
       if (user) {
+        console.log('Loaded currentUser:', user);
         setCurrentUser(user);
         checkWorkerStatus(user.user_id || 123);
       }
     };
     loadUserData();
+
+    // Обновляем статистику каждые 5 секунд
+    const statsInterval = setInterval(() => {
+      updateBackgroundStats();
+    }, 2000);
+
+    return () => clearInterval(statsInterval);
   }, []);
 
   // Проверка статуса работника
@@ -92,23 +103,27 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
         photoResult.success ? photoResult.data.fileName : 'start_shift.jpg'
       );
 
-      if (result.success) {
+            if (result.success) {
         setIsShiftActive(true);
         Alert.alert('Успех', 'Смена начата!');
         updateGeoDataCount();
         
-        // Если фото было сделано, загружаем его
+        // Инициализируем фоновый сервис
+        await backgroundService.initialize(
+          currentUser.user_id || 123,
+          1, // place_id
+          '123456789012345' // IMEI
+        );
+        
+        // Если фото было сделано, добавляем его в очередь фонового сервиса
         if (photoResult.success) {
           try {
-            await fileUploadService.uploadPhoto(
+            await backgroundService.addPhotoToQueue(
               photoResult.data.uri,
-              currentUser.user_id || 123,
-              1, // place_id
-              '123456789012345', // IMEI
               'start-shift'
             );
-          } catch (uploadError) {
-            console.error('Photo upload error:', uploadError);
+          } catch (error) {
+            console.error('Error adding photo to queue:', error);
           }
         }
       } else {
@@ -172,31 +187,39 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
         setIsShiftActive(false);
         Alert.alert('Успех', 'Смена завершена!');
         
-        // Если фото было сделано, загружаем его
+        // Если фото было сделано, добавляем его в очередь и сразу выгружаем
         if (photoResult.success) {
           try {
-            await fileUploadService.uploadPhoto(
+            await backgroundService.addPhotoToQueue(
               photoResult.data.uri,
-              currentUser.user_id || 123,
-              1, // place_id
-              '123456789012345', // IMEI
               'end-shift'
             );
-          } catch (uploadError) {
-            console.error('Photo upload error:', uploadError);
+            await backgroundService.forceUpload();
+            await backgroundService.loadPendingData();
+            updateBackgroundStats();
+          } catch (error) {
+            console.error('Error queuing/uploading end-shift photo:', error);
           }
         }
         
-        // Сохраняем все собранные геоданные
-        await saveGeoData();
+        // Сохраняем все собранные геоданные (не блокируем UI)
+        saveGeoData().finally(async () => {
+          // После выгрузки останавливаем фоновые задачи
+          backgroundService.stop();
+          await backgroundService.loadPendingData();
+          updateBackgroundStats();
+        });
+        // Разрешаем UI сразу, не дожидаясь фоновых завершений
+        setIsLoading(false);
+        return;
       } else {
         Alert.alert('Ошибка', result.error);
+        setIsLoading(false);
       }
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось завершить смену');
-    } finally {
       setIsLoading(false);
-    }
+    } finally {}
   };
 
   // Сохранение геоданных
@@ -224,24 +247,16 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
     setGeoDataCount(geoService.getGeoDataCount());
   };
 
+  // Обновление статистики фонового сервиса
+  const updateBackgroundStats = () => {
+    const stats = backgroundService.getStats();
+    setBackgroundStats(stats);
+    console.log('Background stats:', stats);
+  };
+
   // Добавление новой геопозиции
   const addGeoPoint = async () => {
     try {
-      // Делаем фото для геопозиции
-      let photoResult = await cameraService.takePhoto();
-      
-      // Если камера недоступна и предлагается галерея, пробуем галерею
-      if (!photoResult.success && photoResult.suggestGallery) {
-        const galleryResult = await cameraService.selectPhoto();
-        if (galleryResult.success) {
-          photoResult = galleryResult;
-        }
-      }
-      
-      if (!photoResult.success) {
-        Alert.alert('Предупреждение', 'Фото не было сделано, но геопозиция может быть добавлена');
-      }
-
       const location = await geoService.getCurrentLocation();
       setLastLocation(location);
 
@@ -258,21 +273,6 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
 
       updateGeoDataCount();
       Alert.alert('Успех', 'Геопозиция добавлена!');
-      
-      // Если фото было сделано, загружаем его
-      if (photoResult.success) {
-        try {
-          await fileUploadService.uploadPhoto(
-            photoResult.data.uri,
-            currentUser.user_id || 123,
-            1, // place_id
-            '123456789012345', // IMEI
-            'geo-point'
-          );
-        } catch (uploadError) {
-          console.error('Photo upload error:', uploadError);
-        }
-      }
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось получить геопозицию');
     }
@@ -288,13 +288,19 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
     }
   };
 
+  const displayName = currentUser
+    ? [currentUser.user_lname, currentUser.user_fname, currentUser.user_mname]
+        .filter(Boolean)
+        .join(' ')
+    : '';
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
           <Text style={styles.title}>Workforce Tracker</Text>
           <Text style={styles.subtitle}>
-            {currentUser ? `Пользователь: ${currentUser.user_login || 'Тест'}` : 'Загрузка...'}
+            {currentUser ? `Пользователь: ${displayName || '—'}` : 'Загрузка...'}
           </Text>
         </View>
 
@@ -364,6 +370,55 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
           )}
         </View>
 
+        <View style={styles.backgroundSection}>
+          <Text style={styles.sectionTitle}>Фоновый сервис</Text>
+          
+          <View style={styles.backgroundInfo}>
+            <Text style={styles.backgroundText}>
+              Статус: {backgroundStats.isRunning ? '🟢 Активен' : '🔴 Неактивен'}
+            </Text>
+            <Text style={styles.backgroundText}>
+              Фото в очереди: {backgroundStats.pendingPhotos}
+            </Text>
+            <Text style={styles.backgroundText}>
+              Геоданные в очереди: {backgroundStats.pendingGeoData}
+            </Text>
+          </View>
+
+          {backgroundStats.isRunning && (
+            <TouchableOpacity
+              style={[styles.button, styles.forceUploadButton]}
+              onPress={async () => {
+                await backgroundService.forceUpload();
+                updateBackgroundStats();
+              }}
+            >
+              <Text style={styles.buttonText}>Принудительная отправка</Text>
+            </TouchableOpacity>
+          )}
+
+          {(
+            <TouchableOpacity
+              style={[styles.button, styles.testButton]}
+              onPress={async () => {
+                try {
+                  // Временная отладка: очистка очередей
+                  backgroundService.pendingPhotos = [];
+                  backgroundService.pendingGeoData = [];
+                  await backgroundService.savePendingData();
+                  updateBackgroundStats();
+                  Alert.alert('Готово', 'Очереди очищены');
+                } catch (e) {
+                  Alert.alert('Ошибка', 'Не удалось очистить очереди');
+                }
+              }}
+            >
+              <Text style={styles.buttonText}>Очистить очереди (отладка)</Text>
+            </TouchableOpacity>
+          )}
+
+        </View>
+
         <View style={styles.bottomButtons}>
           <TouchableOpacity
             style={[styles.button, styles.deviceInfoButton]}
@@ -384,6 +439,13 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
             onPress={onNavigateToCameraTest}
           >
             <Text style={styles.buttonText}>🧪 Тест Камеры</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.testButton]}
+            onPress={testAsyncStorage}
+          >
+            <Text style={styles.buttonText}>🧪 Тест AsyncStorage</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -471,6 +533,9 @@ const styles = StyleSheet.create({
   saveButton: {
     backgroundColor: '#FF9800',
   },
+  forceUploadButton: {
+    backgroundColor: '#E91E63',
+  },
   logoutButton: {
     backgroundColor: '#9E9E9E',
   },
@@ -482,6 +547,9 @@ const styles = StyleSheet.create({
   },
   cameraTestButton: {
     backgroundColor: '#9C27B0',
+  },
+  testButton: {
+    backgroundColor: '#607D8B',
   },
 
   buttonDisabled: {
@@ -498,6 +566,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 20,
   },
+  backgroundSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
@@ -507,14 +581,21 @@ const styles = StyleSheet.create({
   geoInfo: {
     marginBottom: 15,
   },
+  backgroundInfo: {
+    marginBottom: 15,
+  },
   geoText: {
     fontSize: 14,
     color: '#666',
     marginBottom: 5,
   },
+  backgroundText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
+  },
   bottomButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
     gap: 10,
   },
 });

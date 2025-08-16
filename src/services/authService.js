@@ -1,4 +1,5 @@
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, getAuthHeaders } from '../config/api';
 
 class AuthService {
@@ -21,7 +22,7 @@ class AuthService {
 
       if (response.data && response.data.success) {
         // Сохраняем данные пользователя
-        this.saveUserData(response.data);
+        await this.saveUserData(response.data);
         return { success: true, data: response.data };
       } else {
         return { success: false, error: response.data.message || 'Ошибка аутентификации' };
@@ -49,7 +50,7 @@ class AuthService {
   async saveUserData(userData) {
     try {
       this.currentUser = userData;
-      // Данные сохраняются только в памяти (временное решение)
+      await AsyncStorage.setItem('current_user', JSON.stringify(userData));
     } catch (error) {
       console.error('Error saving user data:', error);
     }
@@ -58,15 +59,24 @@ class AuthService {
   async clearUserData() {
     try {
       this.currentUser = null;
-      // Данные очищаются только из памяти
+      await AsyncStorage.removeItem('current_user');
     } catch (error) {
       console.error('Error clearing user data:', error);
     }
   }
 
   async getCurrentUser() {
-    // Возвращаем пользователя только из памяти
-    return this.currentUser || null;
+    if (this.currentUser) return this.currentUser;
+    try {
+      const raw = await AsyncStorage.getItem('current_user');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      this.currentUser = parsed;
+      return parsed;
+    } catch (error) {
+      console.error('Error reading user from storage:', error);
+      return null;
+    }
   }
 
   isAuthenticated() {

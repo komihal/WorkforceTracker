@@ -23,7 +23,7 @@ class FileUploadService {
       };
       
       formData.append('foto', photoFile);
-      formData.append('folder', 'photos');
+      formData.append('folder', 'punch');
       formData.append('file_name', photoFile.name);
       formData.append('user_id', userId.toString());
       formData.append('place_id', placeId.toString());
