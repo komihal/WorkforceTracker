@@ -12,10 +12,23 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle")
+        // Pin AGP to a Studio-compatible version
+        classpath('com.android.tools.build:gradle:8.12.0')
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
     }
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Add repositories for local Transistorsoft AARs bundled in node_modules
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://developer.huawei.com/repo/' }
+        // Local maven repos provided by libraries
+        maven { url "$rootDir/../node_modules/react-native-background-geolocation/android/libs" }
+        maven { url "$rootDir/../node_modules/react-native-background-fetch/android/libs" }
+    }
+}

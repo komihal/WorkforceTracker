@@ -4,3 +4,14 @@ extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autoli
 rootProject.name = 'WorkforceTracker'
 include ':app'
 includeBuild('../node_modules/@react-native/gradle-plugin')
+
+// Ensure repositories include Transistorsoft's local Maven inside node_modules
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://developer.huawei.com/repo/' }
+        maven { url "$rootDir/../node_modules/react-native-background-geolocation/android/libs" }
+    }
+}

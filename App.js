@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, View, Text, StyleSheet } from 'react-native';
+import { SafeAreaView, View, Text, StyleSheet, BackHandler } from 'react-native';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
 import DeviceInfoScreen from './src/components/DeviceInfoScreen';
@@ -15,6 +15,20 @@ export default function App() {
   useEffect(() => {
     checkAuthStatus();
   }, []);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (currentScreen === 'photoGallery' || currentScreen === 'deviceInfo' || currentScreen === 'cameraTest') {
+        setCurrentScreen('main');
+        return true; // Обрабатываем "назад" сами
+      }
+      // Для экранам 'main' и 'login' используем поведение по умолчанию (выход из приложения)
+      return false;
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, [currentScreen]);
 
   const checkAuthStatus = async () => {
     try {

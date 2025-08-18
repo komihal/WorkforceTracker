@@ -65,19 +65,20 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
 
     setIsLoading(true);
     try {
-      // Делаем фото для начала смены
+      // Требуем фото (камера или, если недоступна, галерея)
       let photoResult = await cameraService.takePhoto();
-      
-      // Если камера недоступна и предлагается галерея, пробуем галерею
+
       if (!photoResult.success && photoResult.suggestGallery) {
         const galleryResult = await cameraService.selectPhoto();
         if (galleryResult.success) {
           photoResult = galleryResult;
         }
       }
-      
+
       if (!photoResult.success) {
-        Alert.alert('Предупреждение', 'Фото не было сделано, но смена может быть начата');
+        Alert.alert('Требуется фото', 'Для начала смены необходимо сделать фото.');
+        setIsLoading(false);
+        return;
       }
 
       // Получаем текущую геолокацию
@@ -97,10 +98,11 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       );
 
       // Выполняем punch in
+      const photoNameIn = (photoResult.data?.fileName) || `start_shift_${Date.now()}.jpg`;
       const result = await punchService.punchIn(
         currentUser.user_id || 123,
         '123456789012345', // IMEI (в реальном приложении получать с устройства)
-        photoResult.success ? photoResult.data.fileName : 'start_shift.jpg'
+        photoNameIn
       );
 
             if (result.success) {
@@ -115,16 +117,14 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
           '123456789012345' // IMEI
         );
         
-        // Если фото было сделано, добавляем его в очередь фонового сервиса
-        if (photoResult.success) {
-          try {
-            await backgroundService.addPhotoToQueue(
-              photoResult.data.uri,
-              'start-shift'
-            );
-          } catch (error) {
-            console.error('Error adding photo to queue:', error);
-          }
+        // Добавляем фото в очередь фонового сервиса
+        try {
+          await backgroundService.addPhotoToQueue(
+            photoResult.data.uri,
+            'start-shift'
+          );
+        } catch (error) {
+          console.error('Error adding photo to queue:', error);
         }
       } else {
         Alert.alert('Ошибка', result.error);
@@ -145,19 +145,20 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
 
     setIsLoading(true);
     try {
-      // Делаем фото для завершения смены
+      // Требуем фото (камера или, если недоступна, галерея)
       let photoResult = await cameraService.takePhoto();
-      
-      // Если камера недоступна и предлагается галерея, пробуем галерею
+
       if (!photoResult.success && photoResult.suggestGallery) {
         const galleryResult = await cameraService.selectPhoto();
         if (galleryResult.success) {
           photoResult = galleryResult;
         }
       }
-      
+
       if (!photoResult.success) {
-        Alert.alert('Предупреждение', 'Фото не было сделано, но смена может быть завершена');
+        Alert.alert('Требуется фото', 'Для завершения смены необходимо сделать фото.');
+        setIsLoading(false);
+        return;
       }
 
       // Получаем текущую геолокацию
@@ -177,29 +178,28 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       );
 
       // Выполняем punch out
+      const photoNameOut = (photoResult.data?.fileName) || `end_shift_${Date.now()}.jpg`;
       const result = await punchService.punchOut(
         currentUser.user_id || 123,
         '123456789012345',
-        photoResult.success ? photoResult.data.fileName : 'end_shift.jpg'
+        photoNameOut
       );
 
       if (result.success) {
         setIsShiftActive(false);
         Alert.alert('Успех', 'Смена завершена!');
         
-        // Если фото было сделано, добавляем его в очередь и сразу выгружаем
-        if (photoResult.success) {
-          try {
-            await backgroundService.addPhotoToQueue(
-              photoResult.data.uri,
-              'end-shift'
-            );
-            await backgroundService.forceUpload();
-            await backgroundService.loadPendingData();
-            updateBackgroundStats();
-          } catch (error) {
-            console.error('Error queuing/uploading end-shift photo:', error);
-          }
+        // Добавляем фото в очередь и сразу выгружаем
+        try {
+          await backgroundService.addPhotoToQueue(
+            photoResult.data.uri,
+            'end-shift'
+          );
+          await backgroundService.forceUpload();
+          await backgroundService.loadPendingData();
+          updateBackgroundStats();
+        } catch (error) {
+          console.error('Error queuing/uploading end-shift photo:', error);
         }
         
         // Сохраняем все собранные геоданные (не блокируем UI)
