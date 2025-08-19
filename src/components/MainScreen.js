@@ -16,11 +16,15 @@ import fileUploadService from '../services/fileUploadService';
 import cameraService from '../services/cameraService';
 import backgroundService from '../services/backgroundService';
 import testAsyncStorage from '../../AsyncStorageTest';
+import { ensureAlwaysLocationPermission } from '../services/permissionsService';
+import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
 
 const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery, onNavigateToCameraTest }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isShiftActive, setIsShiftActive] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [userStatus, setUserStatus] = useState(WorkerStatus.READY_TO_WORK);
+  const [rawStatusData, setRawStatusData] = useState(null);
   const [geoDataCount, setGeoDataCount] = useState(0);
   const [lastLocation, setLastLocation] = useState(null);
   const [backgroundStats, setBackgroundStats] = useState({ pendingPhotos: 0, pendingGeoData: 0, isRunning: false });
@@ -49,7 +53,39 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
     try {
       const result = await punchService.getWorkerStatus(userId);
       if (result.success) {
-        setIsShiftActive(result.data.is_working || false);
+        const isWorking = !!result.data.is_working;
+        const rawStatus = result.data.status || result.data.worker_status || result.data.status_text || result.data.worker_status_text || null;
+        
+        // Подробное логирование для отладки
+        console.log('=== STATUS DEBUG ===');
+        console.log('Raw API response:', result.data);
+        console.log('isWorking flag:', isWorking);
+        console.log('Raw status value:', rawStatus);
+        console.log('Status type:', typeof rawStatus);
+        console.log('All possible status fields:', {
+          status: result.data.status,
+          worker_status: result.data.worker_status,
+          status_text: result.data.status_text,
+          worker_status_text: result.data.worker_status_text,
+          is_working: result.data.is_working
+        });
+        
+        // Дополнительная проверка на заблокированный статус
+        let forceBlocked = false;
+        if (result.data.blocked === true || result.data.is_blocked === true || 
+            result.data.access_denied === true || result.data.disabled === true) {
+          forceBlocked = true;
+          console.log('Force blocked detected from boolean flags');
+        }
+        
+        const normalized = forceBlocked ? WorkerStatus.BLOCKED : normalizeStatus(rawStatus, isWorking);
+        console.log('Normalized status:', normalized);
+        console.log('Humanized status:', humanizeStatus(normalized));
+        console.log('=== END STATUS DEBUG ===');
+        
+        setIsShiftActive(isWorking);
+        setUserStatus(normalized);
+        setRawStatusData(result.data);
       }
     } catch (error) {
       console.error('Error checking worker status:', error);
@@ -63,12 +99,77 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       return;
     }
 
+    // Сначала проверяем статус рабочего
+    try {
+      const statusResult = await punchService.getWorkerStatus(currentUser.user_id || 123);
+      if (!statusResult.success) {
+        Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
+        return;
+      }
+      
+      // Логируем полученные данные для отладки
+      console.log('Worker status response:', statusResult.data);
+      
+      const isWorking = !!statusResult.data.is_working;
+      const rawStatus = statusResult.data.status || statusResult.data.worker_status || statusResult.data.status_text || statusResult.data.worker_status_text || null;
+      
+      console.log('Raw status data:', {
+        isWorking,
+        rawStatus,
+        allData: statusResult.data
+      });
+      
+      // Дополнительная проверка на заблокированный статус
+      let forceBlocked = false;
+      if (statusResult.data.blocked === true || statusResult.data.is_blocked === true || 
+          statusResult.data.access_denied === true || statusResult.data.disabled === true) {
+        forceBlocked = true;
+        console.log('Force blocked detected from boolean flags (punch in)');
+      }
+      
+      const normalized = forceBlocked ? WorkerStatus.BLOCKED : normalizeStatus(rawStatus, isWorking);
+      
+      console.log('Normalized status:', normalized);
+      
+      if (normalized === WorkerStatus.BLOCKED) {
+        Alert.alert('Доступ заблокирован', 'Ваш пользователь заблокирован администратором. Обратитесь к администратору.');
+        return;
+      }
+      
+      if (normalized === WorkerStatus.FIRED) {
+        Alert.alert('Доступ запрещен', 'Ваш пользователь уволен.');
+        return;
+      }
+      
+      if (!canStartShift(normalized)) {
+        Alert.alert('Доступ запрещен', 'Ваш статус не позволяет начать смену.');
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking worker status:', error);
+      Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
+      return;
+    }
+
+    // Затем проверяем разрешения на геолокацию
+    try {
+      const hasAlways = await ensureAlwaysLocationPermission();
+      if (!hasAlways) {
+        Alert.alert('Разрешение на геолокацию', 'Для начала смены необходимо разрешить доступ к геолокации.');
+        return; // Блокируем старт смены без «Всегда»
+      }
+    } catch (error) {
+      console.error('Error checking location permissions:', error);
+      Alert.alert('Ошибка разрешений', 'Не удалось проверить разрешения на геолокацию.');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      // Требуем фото (камера или, если недоступна, галерея)
+      // Требуем фото. В dev режиме допускаем выбор из галереи при неудаче камеры
       let photoResult = await cameraService.takePhoto();
 
-      if (!photoResult.success && photoResult.suggestGallery) {
+      if (!photoResult.success && __DEV__) {
         const galleryResult = await cameraService.selectPhoto();
         if (galleryResult.success) {
           photoResult = galleryResult;
@@ -143,12 +244,72 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       return;
     }
 
+    // Сначала проверяем статус рабочего
+    try {
+      const statusResult = await punchService.getWorkerStatus(currentUser.user_id || 123);
+      if (!statusResult.success) {
+        Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
+        return;
+      }
+      
+      // Логируем полученные данные для отладки
+      console.log('Worker status response (punch out):', statusResult.data);
+      
+      const isWorking = !!statusResult.data.is_working;
+      const rawStatus = statusResult.data.status || statusResult.data.worker_status || statusResult.data.status_text || statusResult.data.worker_status_text || null;
+      
+      console.log('Raw status data (punch out):', {
+        isWorking,
+        rawStatus,
+        allData: statusResult.data
+      });
+      
+      // Дополнительная проверка на заблокированный статус
+      let forceBlocked = false;
+      if (statusResult.data.blocked === true || statusResult.data.is_blocked === true || 
+          statusResult.data.access_denied === true || statusResult.data.disabled === true) {
+        forceBlocked = true;
+        console.log('Force blocked detected from boolean flags (punch out)');
+      }
+      
+      const normalized = forceBlocked ? WorkerStatus.BLOCKED : normalizeStatus(rawStatus, isWorking);
+      
+      console.log('Normalized status (punch out):', normalized);
+      
+      if (normalized === WorkerStatus.BLOCKED) {
+        Alert.alert('Доступ заблокирован', 'Ваш пользователь заблокирован администратором. Обратитесь к администратору.');
+        return;
+      }
+      
+      if (normalized === WorkerStatus.FIRED) {
+        Alert.alert('Доступ запрещен', 'Ваш пользователь уволен.');
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking worker status:', error);
+      Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
+      return;
+    }
+
+    // Затем проверяем разрешения на геолокацию
+    try {
+      const hasAlways = await ensureAlwaysLocationPermission();
+      if (!hasAlways) {
+        Alert.alert('Разрешение на геолокацию', 'Для завершения смены необходимо разрешить доступ к геолокации.');
+        return; // Блокируем завершение смены без «Всегда»
+      }
+    } catch (error) {
+      console.error('Error checking location permissions:', error);
+      Alert.alert('Ошибка разрешений', 'Не удалось проверить разрешения на геолокацию.');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      // Требуем фото (камера или, если недоступна, галерея)
+      // Требуем фото. В dev режиме допускаем выбор из галереи при неудаче камеры
       let photoResult = await cameraService.takePhoto();
 
-      if (!photoResult.success && photoResult.suggestGallery) {
+      if (!photoResult.success && __DEV__) {
         const galleryResult = await cameraService.selectPhoto();
         if (galleryResult.success) {
           photoResult = galleryResult;
@@ -298,34 +459,186 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Workforce Tracker</Text>
+          <Text style={styles.title}>Смена</Text>
           <Text style={styles.subtitle}>
             {currentUser ? `Пользователь: ${displayName || '—'}` : 'Загрузка...'}
           </Text>
         </View>
 
         <View style={styles.statusCard}>
-          <Text style={styles.statusTitle}>Статус смены</Text>
+          <Text style={styles.statusTitle}>Статус</Text>
           <View style={[styles.statusIndicator, isShiftActive ? styles.activeStatus : styles.inactiveStatus]}>
             <Text style={styles.statusText}>
-              {isShiftActive ? 'Смена активна' : 'Смена неактивна'}
+              {humanizeStatus(userStatus)}{isShiftActive ? ' • Смена активна' : ''}
             </Text>
           </View>
+          {userStatus === WorkerStatus.BLOCKED && (
+            <Text style={{ color: 'crimson', fontSize: 14, marginTop: 10, textAlign: 'center', fontWeight: '600' }}>
+              ⚠️ ВНИМАНИЕ: Пользователь заблокирован!
+            </Text>
+          )}
+          {__DEV__ && (
+            <>
+              <TouchableOpacity
+                style={[styles.button, styles.testButton, { marginTop: 10, padding: 8 }]}
+                onPress={() => {
+                  if (currentUser) {
+                    checkWorkerStatus(currentUser.user_id || 123);
+                  }
+                }}
+              >
+                <Text style={styles.buttonText}>🔄 Обновить статус</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#F44336', marginTop: 5, padding: 8 }]}
+                onPress={() => {
+                  setUserStatus(WorkerStatus.BLOCKED);
+                  setRawStatusData({ status: 'BLOCKED', is_working: false });
+                }}
+              >
+                <Text style={styles.buttonText}>🧪 Тест: Заблокирован</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#4CAF50', marginTop: 5, padding: 8 }]}
+                onPress={() => {
+                  setUserStatus(WorkerStatus.READY_TO_WORK);
+                  setRawStatusData({ status: 'READY_TO_WORK', is_working: false });
+                }}
+              >
+                <Text style={styles.buttonText}>🧪 Тест: 2ч</Text>
+              </TouchableOpacity>
+              <Text style={{ fontSize: 12, color: '#666', marginTop: 5, textAlign: 'center' }}>
+                Raw: {JSON.stringify({ userStatus, isShiftActive })}
+              </Text>
+              {rawStatusData && (
+                <Text style={{ fontSize: 10, color: '#999', marginTop: 3, textAlign: 'center' }}>
+                  API: {JSON.stringify(rawStatusData)}
+                </Text>
+              )}
+            </>
+          )}
         </View>
 
         <View style={styles.actions}>
           {!isShiftActive ? (
-            <TouchableOpacity
-              style={[styles.button, styles.punchInButton, isLoading && styles.buttonDisabled]}
-              onPress={handlePunchIn}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Начать смену</Text>
-              )}
-            </TouchableOpacity>
+            canStartShift(userStatus) ? (
+              <TouchableOpacity
+                style={[styles.button, styles.punchInButton, isLoading && styles.buttonDisabled]}
+                onPress={handlePunchIn}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Начать смену</Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <View>
+                <Text style={{ color: 'crimson', textAlign: 'center', marginBottom: 10 }}>
+                  {userStatus === WorkerStatus.BLOCKED
+                    ? 'Ваш пользователь был заблокирован администратором'
+                    : 'Ваш пользователь уволен'}
+                </Text>
+                {userStatus === WorkerStatus.BLOCKED ? (
+                  <TouchableOpacity
+                    style={[styles.button, styles.punchInButton, isLoading && styles.buttonDisabled]}
+                    onPress={async () => {
+                      if (!currentUser) return;
+                      setIsLoading(true);
+                      try {
+                        const res = await punchService.requestUnblock(currentUser.user_id || 123);
+                        if (res.success) {
+                          Alert.alert('Готово', 'Запрос на разблокировку отправлен');
+                          // Обновляем статус пользователя после успешной отправки
+                          setTimeout(() => {
+                            checkWorkerStatus(currentUser.user_id || 123);
+                          }, 1000);
+                        } else {
+                          Alert.alert(
+                            'Ошибка отправки запроса', 
+                            res.error || 'Не удалось отправить запрос',
+                            [
+                              { text: 'Повторить', onPress: () => {
+                                // Рекурсивно вызываем функцию для повтора
+                                setTimeout(() => {
+                                  if (currentUser) {
+                                    const retryUnblock = async () => {
+                                      setIsLoading(true);
+                                      try {
+                                        const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
+                                        if (retryRes.success) {
+                                          Alert.alert('Готово', 'Запрос на разблокировку отправлен');
+                                          setTimeout(() => {
+                                            checkWorkerStatus(currentUser.user_id || 123);
+                                          }, 1000);
+                                        } else {
+                                          Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
+                                        }
+                                      } catch (e) {
+                                        Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
+                                      } finally {
+                                        setIsLoading(false);
+                                      }
+                                    };
+                                    retryUnblock();
+                                  }
+                                }, 100);
+                              }},
+                              { text: 'Отмена', style: 'cancel' }
+                            ]
+                          );
+                        }
+                      } catch (e) {
+                        console.error('Request unblock error:', e);
+                        Alert.alert(
+                          'Ошибка сети', 
+                          'Не удалось отправить запрос. Проверьте интернет-соединение.',
+                          [
+                            { text: 'Повторить', onPress: () => {
+                              // Рекурсивно вызываем функцию для повтора
+                              setTimeout(() => {
+                                if (currentUser) {
+                                  const retryUnblock = async () => {
+                                    setIsLoading(true);
+                                    try {
+                                      const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
+                                      if (retryRes.success) {
+                                        Alert.alert('Готово', 'Запрос на разблокировку отправлен');
+                                        setTimeout(() => {
+                                          checkWorkerStatus(currentUser.user_id || 123);
+                                        }, 1000);
+                                      } else {
+                                        Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
+                                      }
+                                    } catch (e) {
+                                      Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
+                                    } finally {
+                                      setIsLoading(false);
+                                    }
+                                  };
+                                  retryUnblock();
+                                }
+                              }, 100);
+                            }},
+                            { text: 'Отмена', style: 'cancel' }
+                          ]
+                        );
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.buttonText}>Отправить запрос на разблокировку</Text>
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )
           ) : (
             <TouchableOpacity
               style={[styles.button, styles.punchOutButton, isLoading && styles.buttonDisabled]}
@@ -341,6 +654,7 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
           )}
         </View>
 
+        {__DEV__ ? (
         <View style={styles.geoSection}>
           <Text style={styles.sectionTitle}>Геолокация</Text>
           
@@ -369,7 +683,9 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
             </TouchableOpacity>
           )}
         </View>
+        ) : null}
 
+        {__DEV__ ? (
         <View style={styles.backgroundSection}>
           <Text style={styles.sectionTitle}>Фоновый сервис</Text>
           
@@ -418,35 +734,40 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
           )}
 
         </View>
+        ) : null}
 
         <View style={styles.bottomButtons}>
-          <TouchableOpacity
-            style={[styles.button, styles.deviceInfoButton]}
-            onPress={onNavigateToDeviceInfo}
-          >
-            <Text style={styles.buttonText}>Информация об устройстве</Text>
-          </TouchableOpacity>
+          {__DEV__ ? (
+            <>
+              <TouchableOpacity
+                style={[styles.button, styles.deviceInfoButton]}
+                onPress={onNavigateToDeviceInfo}
+              >
+                <Text style={styles.buttonText}>Информация об устройстве</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.button, styles.photoGalleryButton]}
-            onPress={onNavigateToPhotoGallery}
-          >
-            <Text style={styles.buttonText}>📸 Фотогалерея</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, styles.photoGalleryButton]}
+                onPress={onNavigateToPhotoGallery}
+              >
+                <Text style={styles.buttonText}>📸 Фотогалерея</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.button, styles.cameraTestButton]}
-            onPress={onNavigateToCameraTest}
-          >
-            <Text style={styles.buttonText}>🧪 Тест Камеры</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, styles.cameraTestButton]}
+                onPress={onNavigateToCameraTest}
+              >
+                <Text style={styles.buttonText}>🧪 Тест Камеры</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.button, styles.testButton]}
-            onPress={testAsyncStorage}
-          >
-            <Text style={styles.buttonText}>🧪 Тест AsyncStorage</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, styles.testButton]}
+                onPress={testAsyncStorage}
+              >
+                <Text style={styles.buttonText}>🧪 Тест AsyncStorage</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
 
           <TouchableOpacity
             style={[styles.button, styles.logoutButton]}
@@ -471,6 +792,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
+    marginTop: 12,
     marginBottom: 30,
   },
   title: {

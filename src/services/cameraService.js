@@ -1,5 +1,6 @@
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
+import { check, request, PERMISSIONS, RESULTS, openSettings } from 'react-native-permissions';
 
 class CameraService {
   constructor() {
@@ -10,7 +11,41 @@ class CameraService {
       maxWidth: 1920,
       maxHeight: 1080,
       saveToPhotos: false,
+      cameraType: 'front',
     };
+  }
+
+  async ensureCameraPermissionAndroid() {
+    try {
+      const permission = PERMISSIONS.ANDROID.CAMERA;
+      let status = await check(permission);
+
+      if (status === RESULTS.GRANTED) {
+        return true;
+      }
+
+      if (status === RESULTS.DENIED || status === RESULTS.LIMITED) {
+        status = await request(permission);
+        return status === RESULTS.GRANTED;
+      }
+
+      if (status === RESULTS.BLOCKED) {
+        Alert.alert(
+          'Доступ к камере',
+          'Доступ к камере заблокирован в настройках. Откройте настройки, чтобы выдать разрешение.',
+          [
+            { text: 'Отмена', style: 'cancel' },
+            { text: 'Открыть настройки', onPress: () => openSettings() },
+          ],
+        );
+        return false;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('ensureCameraPermissionAndroid error:', error);
+      return false;
+    }
   }
 
   // Сделать фото с камеры
@@ -30,11 +65,17 @@ class CameraService {
           };
         }
       }
+      
+      if (Platform.OS === 'android') {
+        const hasPermission = await this.ensureCameraPermissionAndroid();
+        if (!hasPermission) {
+          return { success: false, error: 'Нет доступа к камере' };
+        }
+      }
 
       const cameraOptions = {
         ...this.defaultOptions,
         ...options,
-        cameraType: 'back',
       };
 
       console.log('Launching camera with options:', cameraOptions);
@@ -197,7 +238,13 @@ class CameraService {
           platform: Platform.OS 
         };
       }
-      
+      if (Platform.OS === 'android') {
+        const permission = PERMISSIONS.ANDROID.CAMERA;
+        const status = await check(permission);
+        const hasPermission = status === RESULTS.GRANTED;
+        return { success: true, hasPermission, platform: Platform.OS };
+      }
+
       return { success: true, hasPermission: true, platform: Platform.OS };
     } catch (error) {
       console.error('Permission check error:', error);

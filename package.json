@@ -17,7 +17,9 @@
     "react-native": "0.80.2",
     "react-native-background-fetch": "^4.2.8",
     "react-native-background-geolocation": "^4.18.9",
-    "react-native-image-picker": "^8.2.1"
+    "react-native-image-picker": "^8.2.1",
+    "react-native-permissions": "^4.1.5",
+    "react-native-config": "^1.5.0"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",

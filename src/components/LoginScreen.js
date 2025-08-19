@@ -15,6 +15,7 @@ const LoginScreen = ({ onLoginSuccess }) => {
   const [userLogin, setUserLogin] = useState('');
   const [userPassword, setUserPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
     if (!userLogin.trim() || !userPassword.trim()) {
@@ -54,17 +55,31 @@ const LoginScreen = ({ onLoginSuccess }) => {
             keyboardType="phone-pad"
             autoCapitalize="none"
             editable={!isLoading}
+            placeholderTextColor="#9E9E9E"
+            selectionColor="#007AFF"
           />
           
-          <TextInput
-            style={styles.input}
-            placeholder="Пароль"
-            value={userPassword}
-            onChangeText={setUserPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            editable={!isLoading}
-          />
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder="Пароль"
+              value={userPassword}
+              onChangeText={setUserPassword}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              editable={!isLoading}
+              placeholderTextColor="#9E9E9E"
+              selectionColor="#007AFF"
+            />
+            <TouchableOpacity
+              onPress={() => setShowPassword(v => !v)}
+              accessibilityLabel={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+              style={styles.eyeButton}
+              disabled={isLoading}
+            >
+              <Text style={styles.eyeText}>{showPassword ? '🙈' : '👁️'}</Text>
+            </TouchableOpacity>
+          </View>
           
           <TouchableOpacity
             style={[styles.button, isLoading && styles.buttonDisabled]}
@@ -79,13 +94,15 @@ const LoginScreen = ({ onLoginSuccess }) => {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.info}>
-          <Text style={styles.infoText}>
-            Для тестирования используйте:{'\n'}
-            Логин: 79999999999{'\n'}
-            Пароль: 123456
-          </Text>
-        </View>
+        {__DEV__ ? (
+          <View style={styles.info}>
+            <Text style={styles.infoText}>
+              Для тестирования используйте:{'\n'}
+              Логин: 79999999999{'\n'}
+              Пароль: 123456
+            </Text>
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -119,12 +136,32 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#fff',
+    color: '#000',
     borderRadius: 8,
     padding: 15,
     marginBottom: 15,
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#ddd',
+  },
+  passwordWrapper: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 44,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 10,
+    top: 12,
+    height: 28,
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eyeText: {
+    fontSize: 18,
+    color: '#333',
   },
   button: {
     backgroundColor: '#007AFF',

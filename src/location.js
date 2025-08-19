@@ -1,12 +1,27 @@
 import BackgroundGeolocation from 'react-native-background-geolocation';
 import { postLocation } from './api';
 import Config from 'react-native-config';
+import { Platform } from 'react-native';
 
 let isInit = false;
 
 export async function initLocation() {
   if (isInit) return;
   isInit = true;
+
+  // Читаем платформенный ключ лицензии из .env через react-native-config
+  const license = Platform.select({
+    android: Config.BG_GEO_LICENSE_ANDROID,
+    ios: Config.BG_GEO_LICENSE_IOS,
+    default: null,
+  });
+
+  if (!license) {
+    const platform = Platform.OS;
+    const varName = platform === 'ios' ? 'BG_GEO_LICENSE_IOS' : 'BG_GEO_LICENSE_ANDROID';
+    console.warn(`BackgroundGeolocation: лицензия для ${platform} не задана (${varName}). Инициализация пропущена.`);
+    return;
+  }
 
   BackgroundGeolocation.onLocation(async (location) => {
     const c = location.coords || {};
@@ -53,6 +68,7 @@ export async function initLocation() {
     maxBatchSize: 20,
     headers: Config.API_TOKEN ? { Authorization: `Bearer ${Config.API_TOKEN}` } : {},
     logLevel: BackgroundGeolocation.LOG_LEVEL_INFO,
+    license,
   }, (state) => {
     if (!state.enabled) BackgroundGeolocation.start();
   });

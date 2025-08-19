@@ -9,6 +9,7 @@ export const API_CONFIG = {
     USER_PHOTOS: '/api/user-photos/',
     WORKER_STATUS: '/api/worker-status/',
     WORKER_REVIEW: '/api/worker-review/',
+    UNBLOCK_REQUEST: '/api/unblock-requests/',
   },
   HEADERS: {
     'Content-Type': 'application/json',

@@ -6,6 +6,7 @@ import DeviceInfoScreen from './src/components/DeviceInfoScreen';
 import PhotoGalleryScreen from './src/components/PhotoGalleryScreen';
 import CameraTestScreen from './src/components/CameraTestScreen';
 import authService from './src/services/authService';
+import { initLocation } from './src/location';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('login');
@@ -17,6 +18,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Инициализируем фоновой геотрекинг (прочитает ключи из .env)
+    initLocation();
+
     const onBackPress = () => {
       if (currentScreen === 'photoGallery' || currentScreen === 'deviceInfo' || currentScreen === 'cameraTest') {
         setCurrentScreen('main');
