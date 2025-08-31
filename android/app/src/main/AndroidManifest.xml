@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- For Android 13+ photo picking/saving -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
@@ -20,6 +21,8 @@
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:supportsRtl="true">
+      <!-- Transistorsoft Background Geolocation license (for native validation on Android) -->
+      <meta-data android:name="com.transistorsoft.bggeo.license" android:value="${BG_GEO_LICENSE_ANDROID}"/>
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   SafeAreaView,
+  Platform,
 } from 'react-native';
 import authService from '../services/authService';
 
@@ -17,15 +18,38 @@ const LoginScreen = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const handlePhoneChange = (rawValue) => {
+    const digitsOnly = rawValue.replace(/\D/g, '').slice(0, 10);
+    setUserLogin(digitsOnly);
+  };
+
+  const formatRuPhone = (digits) => {
+    if (!digits) return '';
+    const a = digits.slice(0, 3);
+    const b = digits.slice(3, 6);
+    const c = digits.slice(6, 8);
+    const e = digits.slice(8, 10);
+    if (digits.length <= 3) return `(${a}`;
+    if (digits.length <= 6) return `(${a}) ${b}`;
+    if (digits.length <= 8) return `(${a}) ${b}-${c}`;
+    return `(${a}) ${b}-${c}-${e}`;
+  };
+
   const handleLogin = async () => {
-    if (!userLogin.trim() || !userPassword.trim()) {
-      Alert.alert('Ошибка', 'Пожалуйста, заполните все поля');
+    const digitsOnly = userLogin.replace(/\D/g, '');
+    if (digitsOnly.length !== 10) {
+      Alert.alert('Ошибка', 'Введите номер телефона в формате 10 цифр');
+      return;
+    }
+    if (!userPassword.trim()) {
+      Alert.alert('Ошибка', 'Пожалуйста, введите пароль');
       return;
     }
 
     setIsLoading(true);
     try {
-      const result = await authService.login(userLogin, userPassword);
+      const normalizedLogin = `7${digitsOnly}`;
+      const result = await authService.login(normalizedLogin, userPassword);
       
       if (result.success) {
         Alert.alert('Успех', 'Вход выполнен успешно!');
@@ -47,17 +71,23 @@ const LoginScreen = ({ onLoginSuccess }) => {
         <Text style={styles.subtitle}>Вход в систему</Text>
         
         <View style={styles.form}>
-          <TextInput
-            style={styles.input}
-            placeholder="Номер телефона"
-            value={userLogin}
-            onChangeText={setUserLogin}
-            keyboardType="phone-pad"
-            autoCapitalize="none"
-            editable={!isLoading}
-            placeholderTextColor="#9E9E9E"
-            selectionColor="#007AFF"
-          />
+          <View style={styles.phoneInputWrapper}>
+            <TextInput
+              style={[styles.input, styles.inputWithPrefix]}
+              placeholder="(___) ___-__-__"
+              value={formatRuPhone(userLogin)}
+              onChangeText={handlePhoneChange}
+              keyboardType="number-pad"
+              autoCapitalize="none"
+              editable={!isLoading}
+              placeholderTextColor="#9E9E9E"
+              selectionColor="#007AFF"
+              maxLength={16}
+            />
+            <View style={styles.phonePrefixContainer} pointerEvents="none">
+              <Text style={styles.phoneFixedPrefix}>+7</Text>
+            </View>
+          </View>
           
           <View style={styles.passwordWrapper}>
             <TextInput
@@ -188,6 +218,30 @@ const styles = StyleSheet.create({
     color: '#333',
     fontSize: 14,
     lineHeight: 20,
+  },
+  phoneInputWrapper: {
+    position: 'relative',
+    marginBottom: 15,
+  },
+  phonePrefixContainer: {
+    position: 'absolute',
+    left: 14,
+    top: 12,
+    height: 24,
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  phoneFixedPrefix: {
+    color: '#000',
+    fontSize: 16,
+    includeFontPadding: false,
+    lineHeight: 20,
+  },
+  inputWithPrefix: {
+    paddingLeft: 44,
+    height: 48,
+    paddingVertical: 12,
+    textAlignVertical: 'center',
   },
 });
 

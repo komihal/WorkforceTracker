@@ -18,6 +18,8 @@ import backgroundService from '../services/backgroundService';
 import testAsyncStorage from '../../AsyncStorageTest';
 import { ensureAlwaysLocationPermission } from '../services/permissionsService';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
+import { initLocation, getOneShotPosition, getBgGeoState, getLicenseInfo, getBgGeoLog, searchBgGeoLog, requestBgGeoPermission } from '../location';
+import { runBgGeoSmokeTest } from '../tests/bggeoSmokeTest';
 
 const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery, onNavigateToCameraTest }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +41,15 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       }
     };
     loadUserData();
+
+    // Инициализируем BackgroundGeolocation (BGG) при старте экрана
+    (async () => {
+      try {
+        await initLocation();
+      } catch (e) {
+        try { console.log('initLocation error:', e); } catch (_) {}
+      }
+    })();
 
     // Обновляем статистику каждые 5 секунд
     const statsInterval = setInterval(() => {
@@ -186,17 +197,19 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       const location = await geoService.getCurrentLocation();
       setLastLocation(location);
 
-      // Добавляем геопозицию
-      geoService.addGeoPoint(
-        location.latitude,
-        location.longitude,
-        location.altitude,
-        location.altitude + 5, // Пример altmsl
-        true,
-        true,
-        false,
-        1.5
+      // Добавляем геопозицию с правильным порядком параметров
+      console.log('Adding geo point for punch in:', location);
+      const geoPoint = geoService.addGeoPoint(
+        location.latitude,    // lat
+        location.longitude,   // lon
+        location.altitude || 0,  // alt
+        (location.altitude || 0) + 5,  // altMsl (altitude + 5)
+        true,                 // hasAlt
+        true,                 // hasAltMsl
+        false,                // hasAltMslAccuracy
+        1.5                   // mslAccuracyMeters
       );
+      console.log('Added geo point for punch in:', geoPoint);
 
       // Выполняем punch in
       const photoNameIn = (photoResult.data?.fileName) || `start_shift_${Date.now()}.jpg`;
@@ -326,17 +339,19 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       const location = await geoService.getCurrentLocation();
       setLastLocation(location);
 
-      // Добавляем финальную геопозицию
-      geoService.addGeoPoint(
-        location.latitude,
-        location.longitude,
-        location.altitude,
-        location.altitude + 5,
-        true,
-        true,
-        false,
-        1.5
+      // Добавляем финальную геопозицию с правильным порядком параметров
+      console.log('Adding geo point for punch out:', location);
+      const geoPoint = geoService.addGeoPoint(
+        location.latitude,    // lat
+        location.longitude,   // lon
+        location.altitude || 0,  // alt
+        (location.altitude || 0) + 5,  // altMsl (altitude + 5)
+        true,                 // hasAlt
+        true,                 // hasAltMsl
+        false,                // hasAltMslAccuracy
+        1.5                   // mslAccuracyMeters
       );
+      console.log('Added geo point for punch out:', geoPoint);
 
       // Выполняем punch out
       const photoNameOut = (photoResult.data?.fileName) || `end_shift_${Date.now()}.jpg`;
@@ -418,24 +433,113 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
   // Добавление новой геопозиции
   const addGeoPoint = async () => {
     try {
+      console.log('=== ADDING GEO POINT ===');
+      
       const location = await geoService.getCurrentLocation();
-      setLastLocation(location);
-
-      geoService.addGeoPoint(
-        location.latitude,
-        location.longitude,
-        location.altitude,
-        location.altitude + 5,
-        true,
-        true,
-        false,
-        1.5
+      console.log('Raw location from geoService:', location);
+      
+      // Проверяем валидность координат
+      if (typeof location.latitude !== 'number' || typeof location.longitude !== 'number') {
+        console.error('Invalid coordinates:', location);
+        Alert.alert('Ошибка', 'Получены невалидные координаты');
+        return;
+      }
+      
+      // Проверяем диапазон координат
+      if (location.latitude < -90 || location.latitude > 90) {
+        console.error('Invalid latitude:', location.latitude);
+        Alert.alert('Ошибка', `Некорректная широта: ${location.latitude}`);
+        return;
+      }
+      
+      if (location.longitude < -180 || location.longitude > 180) {
+        console.error('Invalid longitude:', location.longitude);
+        Alert.alert('Ошибка', `Некорректная долгота: ${location.longitude}`);
+        return;
+      }
+      
+      console.log('Coordinates validation passed:', {
+        lat: location.latitude,
+        lon: location.longitude,
+        alt: location.altitude,
+        accuracy: location.accuracy
+      });
+      
+      // Добавляем геопозицию с правильным порядком параметров
+      const geoPoint = geoService.addGeoPoint(
+        location.latitude,    // lat
+        location.longitude,   // lon
+        location.altitude || 0,  // alt
+        (location.altitude || 0) + 5,  // altMsl (altitude + 5)
+        true,                 // hasAlt
+        true,                 // hasAltMsl
+        false,                // hasAltMslAccuracy
+        1.5                   // mslAccuracyMeters
       );
-
+      
+      console.log('Added geo point:', geoPoint);
+      console.log('Total geo points:', geoService.getGeoDataCount());
+      console.log('=== END ADDING GEO POINT ===');
+      
+      setLastLocation(location);
       updateGeoDataCount();
-      Alert.alert('Успех', 'Геопозиция добавлена!');
+      Alert.alert('Успех', `Геопозиция добавлена!\nШирота: ${location.latitude.toFixed(6)}\nДолгота: ${location.longitude.toFixed(6)}`);
     } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось получить геопозицию');
+      console.error('Error adding geo point:', error);
+      
+      // Если это ошибка fallback координат эмулятора, предлагаем использовать тестовые координаты
+      if (error.message === 'EMULATOR_FALLBACK_COORDS') {
+        Alert.alert(
+          'Эмулятор GPS',
+          'Обнаружены тестовые координаты эмулятора. Использовать тестовые координаты Москвы?',
+          [
+            {
+              text: 'Отмена',
+              style: 'cancel',
+            },
+            {
+              text: 'Использовать тестовые',
+              onPress: () => addGeoPointWithTestCoords(),
+            },
+          ]
+        );
+        return;
+      }
+      
+      Alert.alert('Ошибка', `Не удалось получить геопозицию: ${error.message}`);
+    }
+  };
+
+  // Добавление геопозиции с тестовыми координатами для эмулятора
+  const addGeoPointWithTestCoords = () => {
+    try {
+      console.log('=== ADDING TEST GEO POINT ===');
+      
+      const testLocation = geoService.getTestCoordinates();
+      console.log('Test location:', testLocation);
+      
+      // Добавляем геопозицию с тестовыми координатами
+      const geoPoint = geoService.addGeoPoint(
+        testLocation.latitude,    // lat
+        testLocation.longitude,   // lon
+        testLocation.altitude || 0,  // alt
+        (testLocation.altitude || 0) + 5,  // altMsl (altitude + 5)
+        true,                 // hasAlt
+        true,                 // hasAltMsl
+        false,                // hasAltMslAccuracy
+        1.5                   // mslAccuracyMeters
+      );
+      
+      console.log('Added test geo point:', geoPoint);
+      console.log('Total geo points:', geoService.getGeoDataCount());
+      console.log('=== END ADDING TEST GEO POINT ===');
+      
+      setLastLocation(testLocation);
+      updateGeoDataCount();
+      Alert.alert('Успех', `Тестовая геопозиция добавлена!\nШирота: ${testLocation.latitude.toFixed(6)}\nДолгота: ${testLocation.longitude.toFixed(6)}\n\n(Тестовые координаты Москвы)`);
+    } catch (error) {
+      console.error('Error adding test geo point:', error);
+      Alert.alert('Ошибка', `Не удалось добавить тестовую геопозицию: ${error.message}`);
     }
   };
 
@@ -669,9 +773,143 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
 
           <TouchableOpacity
             style={[styles.button, styles.geoButton]}
+            onPress={async () => {
+              const res = await runBgGeoSmokeTest({
+                licenseKey: "7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf",
+                // webhookUrl: "https://webhook.site/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX", // optional
+                timeoutSec: 30,
+              });
+              Alert.alert(
+                res.ok ? "BGG Smoke: OK" : "BGG Smoke: FAIL",
+                [
+                  `bundleId: ${res.bundleId}`,
+                  `gotLocation: ${res.gotLocation}`,
+                  `httpOk: ${res.httpOk === null ? 'n/a' : res.httpOk}`,
+                  res.errors.length ? `errors: ${res.errors.join(' | ')}` : 'no errors',
+                ].join('\n')
+              );
+              try { console.log('BGG SMOKE RESULT:', res); } catch {}
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: Smoke-test ключа</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
             onPress={addGeoPoint}
           >
             <Text style={styles.buttonText}>Добавить геопозицию</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={addGeoPointWithTestCoords}
+          >
+            <Text style={styles.buttonText}>🧪 Тестовые координаты (Москва)</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={async () => {
+              const res = await getOneShotPosition();
+              if (res && !res.error) {
+                Alert.alert('BGG One-shot', `lat=${res.coords?.latitude}, lon=${res.coords?.longitude}`);
+                try { console.log('BGG getCurrentPosition:', res); } catch (_) {}
+              } else {
+                Alert.alert('BGG One-shot ошибка', String(res?.error || 'unknown'));
+              }
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: One-shot позиция</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={async () => {
+              const state = await getBgGeoState();
+              if (state && !state.error) {
+                Alert.alert('BGG Состояние', `enabled=${state.enabled}, trackingMode=${state.trackingMode ?? 'n/a'}`);
+                try { console.log('BGG getState:', state); } catch (_) {}
+              } else {
+                Alert.alert('BGG Состояние ошибка', String(state?.error || 'unknown'));
+              }
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: Состояние плагина</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={() => {
+              try {
+                const lic = getLicenseInfo();
+                Alert.alert('BGG Лицензия', `env=${lic.envVar}\nесть=${lic.licensePresent ? 'Да' : 'Нет'}\ninit=${lic.initSucceeded ? 'Да' : 'Нет'}${lic.lastInitError ? `\nerr=${lic.lastInitError}` : ''}`);
+                try { console.log('BGG license info:', lic); } catch (_) {}
+              } catch (e) {
+                Alert.alert('BGG Лицензия', String(e?.message || e));
+              }
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: Статус лицензии</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={async () => {
+              const log = await getBgGeoLog();
+              try { console.log('BGG Log:\n', log); } catch (_) {}
+              Alert.alert('BGG Лог (первые 2к симв.)', String(log).slice(0, 2000));
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: Логи</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={async () => {
+              const hits = await searchBgGeoLog('(license|invalid|error|denied|package)');
+              try { console.log('BGG Log (filtered):\n', hits); } catch (_) {}
+              Alert.alert('BGG Лог (фильтр license/error)', String(hits).slice(0, 2000));
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: Поиск ошибок</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={async () => {
+              const status = await requestBgGeoPermission();
+              Alert.alert('BGG Разрешения', JSON.stringify(status));
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: Запрос разрешений</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.geoButton]}
+            onPress={async () => {
+              try {
+                const lic = getLicenseInfo();
+                const state = await getBgGeoState();
+                const position = await getOneShotPosition();
+                
+                const summary = `Platform: ${lic.platform}
+Init: ${lic.initSucceeded ? 'Да' : 'Нет'}
+License: ${lic.licensePresent ? 'Да' : 'Нет'}
+State enabled: ${state?.enabled || 'N/A'}
+Position: ${position?.error ? 'Ошибка' : 'Получена'}
+Package: ${lic.packageName || 'N/A'}`;
+                
+                Alert.alert('BGG Детальный тест', summary);
+                console.log('BGG License Info:', lic);
+                console.log('BGG State:', state);
+                console.log('BGG Position:', position);
+              } catch (e) {
+                Alert.alert('BGG Тест ошибка', e.message);
+              }
+            }}
+          >
+            <Text style={styles.buttonText}>🧪 BGG: Детальный тест</Text>
           </TouchableOpacity>
 
           {geoDataCount > 0 && (

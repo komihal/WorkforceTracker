@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import deviceUtils from '../utils/deviceUtils';
+import { getLicenseInfo } from '../location';
 
 const DeviceInfoScreen = ({ onBack }) => {
   const [deviceInfo, setDeviceInfo] = useState(null);
@@ -16,6 +17,7 @@ const DeviceInfoScreen = ({ onBack }) => {
   const [batteryInfo, setBatteryInfo] = useState(null);
   const [featureSupport, setFeatureSupport] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [licenseInfo, setLicenseInfo] = useState(null);
 
   useEffect(() => {
     loadDeviceInfo();
@@ -36,6 +38,13 @@ const DeviceInfoScreen = ({ onBack }) => {
       setNetworkInfo(network);
       setBatteryInfo(battery);
       setFeatureSupport(features);
+      // Лицензия background-geolocation
+      try {
+        const lic = getLicenseInfo();
+        setLicenseInfo(lic);
+      } catch (e) {
+        setLicenseInfo({ error: e?.message || String(e) });
+      }
     } catch (error) {
       console.error('Error loading device info:', error);
     } finally {
@@ -82,6 +91,7 @@ const DeviceInfoScreen = ({ onBack }) => {
         {renderInfoSection('Сеть', networkInfo, '#4CAF50')}
         {renderInfoSection('Батарея', batteryInfo, '#FF9800')}
         {renderInfoSection('Поддерживаемые функции', featureSupport, '#9C27B0')}
+        {renderInfoSection('BackgroundGeolocation Лицензия', licenseInfo || { status: 'нет данных' }, '#3F51B5')}
 
         <View style={styles.actions}>
           <TouchableOpacity style={styles.refreshButton} onPress={loadDeviceInfo}>
