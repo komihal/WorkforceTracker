@@ -5,7 +5,9 @@ import MainScreen from './src/components/MainScreen';
 import DeviceInfoScreen from './src/components/DeviceInfoScreen';
 import PhotoGalleryScreen from './src/components/PhotoGalleryScreen';
 import CameraTestScreen from './src/components/CameraTestScreen';
+import BgGeoTestScreen from './src/components/BgGeoTestScreen';
 import authService from './src/services/authService';
+import backgroundService from './src/services/backgroundService';
 import { initLocation } from './src/location';
 
 export default function App() {
@@ -20,9 +22,29 @@ export default function App() {
   useEffect(() => {
     // Инициализируем фоновой геотрекинг (прочитает ключи из .env)
     initLocation();
+    
+    // Инициализируем BackgroundService для работы в фоне
+    const initBackgroundService = async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        if (user) {
+          console.log('Initializing BackgroundService for existing user:', user.user_id);
+          await backgroundService.initialize(
+            user.user_id,
+            1, // place_id по умолчанию
+            '123456789012345', // IMEI по умолчанию
+            __DEV__ // тестовый режим в dev
+          );
+        }
+      } catch (error) {
+        console.log('BackgroundService not initialized (no user):', error.message);
+      }
+    };
+    
+    initBackgroundService();
 
     const onBackPress = () => {
-      if (currentScreen === 'photoGallery' || currentScreen === 'deviceInfo' || currentScreen === 'cameraTest') {
+      if (currentScreen === 'photoGallery' || currentScreen === 'deviceInfo' || currentScreen === 'cameraTest' || currentScreen === 'bgGeoTest') {
         setCurrentScreen('main');
         return true; // Обрабатываем "назад" сами
       }
@@ -40,6 +62,19 @@ export default function App() {
       if (user) {
         setCurrentUser(user);
         setCurrentScreen('main');
+        
+        // Инициализируем BackgroundService для существующего пользователя
+        try {
+          console.log('Initializing BackgroundService for existing user:', user.user_id);
+          await backgroundService.initialize(
+            user.user_id,
+            1, // place_id по умолчанию
+            '123456789012345', // IMEI по умолчанию
+            __DEV__ // тестовый режим в dev
+          );
+        } catch (error) {
+          console.log('BackgroundService initialization error:', error.message);
+        }
       }
     } catch (error) {
       console.error('Error checking auth status:', error);
@@ -51,6 +86,23 @@ export default function App() {
   const handleLoginSuccess = (userData) => {
     setCurrentUser(userData);
     setCurrentScreen('main');
+    
+    // Инициализируем BackgroundService для нового пользователя
+    const initService = async () => {
+      try {
+        console.log('Initializing BackgroundService for new user:', userData.user_id);
+        await backgroundService.initialize(
+          userData.user_id,
+          1, // place_id по умолчанию
+          '123456789012345', // IMEI по умолчанию
+          __DEV__ // тестовый режим в dev
+        );
+      } catch (error) {
+        console.log('BackgroundService initialization error:', error.message);
+      }
+    };
+    
+    initService();
   };
 
   const handleLogout = () => {
@@ -74,6 +126,10 @@ export default function App() {
     setCurrentScreen('cameraTest');
   };
 
+  const navigateToBgGeoTest = () => {
+    setCurrentScreen('bgGeoTest');
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -93,6 +149,7 @@ export default function App() {
             onNavigateToDeviceInfo={navigateToDeviceInfo}
             onNavigateToPhotoGallery={navigateToPhotoGallery}
             onNavigateToCameraTest={navigateToCameraTest}
+            onNavigateToBgGeoTest={navigateToBgGeoTest}
           />
         );
       case 'deviceInfo':
@@ -111,6 +168,12 @@ export default function App() {
       case 'cameraTest':
         return (
           <CameraTestScreen 
+            onBack={navigateToMain}
+          />
+        );
+      case 'bgGeoTest':
+        return (
+          <BgGeoTestScreen 
             onBack={navigateToMain}
           />
         );

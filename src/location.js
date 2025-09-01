@@ -52,26 +52,44 @@ export async function initLocation() {
     const batt = location.battery?.level ?? null;
     const motion = location.activity?.type ?? null;
 
-    // Отправляем если API настроен
-    if (Config.API_URL && Config.API_URL === 'https://api.tabelshik.com') {
+    // Отправляем если API настроен и пользователь аутентифицирован
+    if (API_CONFIG.BASE_URL && API_CONFIG.BASE_URL === 'https://api.tabelshik.com') {
       try {
-        await postLocation({
-          lat: c.latitude,
-          lon: c.longitude,
-          accuracy: c.accuracy,
-          speed: c.speed,
-          heading: c.heading,
-          ts,
-          batt,
-          motion,
-          alt: c.altitude,
-          altmsl: c.altitude,
-        });
+        // Проверяем, что пользователь аутентифицирован
+        const authService = require('./services/authService').default;
+        const currentUser = await authService.getCurrentUser();
+        
+        if (currentUser && currentUser.user_id) {
+          await postLocation({
+            lat: c.latitude,
+            lon: c.longitude,
+            accuracy: c.accuracy,
+            speed: c.speed,
+            heading: c.heading,
+            ts,
+            batt,
+            motion,
+            alt: c.altitude,
+            altmsl: c.altitude,
+          });
+        } else {
+          console.log('Location received but user not authenticated, skipping API call');
+        }
       } catch (e) {
         console.error('Ошибка отправки местоположения:', e);
       }
     } else {
       console.log('API не настроен, местоположение не отправляется');
+    }
+    
+    // Также отправляем в BackgroundService для локального кэширования и фоновой отправки
+    try {
+      const backgroundService = require('./services/backgroundService').default;
+      if (backgroundService.isRunning) {
+        await backgroundService.handleBackgroundLocation(location);
+      }
+    } catch (e) {
+      console.log('BackgroundService not available for location caching');
     }
   });
 
@@ -95,23 +113,36 @@ export async function initLocation() {
     const state = await BackgroundGeolocation.ready({
       reset: true,
       desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
-      distanceFilter: 10, // Уменьшил с 20 до 10 метров
+      distanceFilter: 10,
       stopOnTerminate: false,
       startOnBoot: true,
-      pausesLocationUpdatesAutomatically: false, // Отключил автоматическую паузу
+      pausesLocationUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: true,
-      url: `${API_CONFIG.BASE_URL}/db_save/`,
-      method: 'POST',
-      autoSync: true,
-      batchSync: true,
-      maxBatchSize: 10, // Уменьшил с 20 до 10 для более частой отправки
-      headers: { 'API_TOKEN': API_CONFIG.API_TOKEN, 'Content-Type': 'application/json' },
+      // Отключаем автоматическую отправку - будем управлять вручную через BackgroundService
+      autoSync: false,
+      batchSync: false,
+      // Убираем stopTimeout - пусть работает постоянно в фоне
+      stopTimeout: 0,
+      // Увеличиваем heartbeat для лучшей работы в фоне
+      heartbeatInterval: 30,
+      maxDaysToPersist: 7,
       debug: __DEV__ ? true : false,
       logLevel: __DEV__ ? BackgroundGeolocation.LOG_LEVEL_VERBOSE : BackgroundGeolocation.LOG_LEVEL_INFO,
       foregroundService: true,
       enableHeadless: true,
-      activityRecognitionInterval: 1000, // Проверка активности каждую секунду
-      minimumActivityRecognitionConfidence: 80, // Минимальная уверенность в активности
+      // Настройки для Android
+      notification: {
+        title: 'WorkforceTracker',
+        text: 'Отслеживание местоположения активно',
+        channelName: 'Location Tracking',
+        priority: BackgroundGeolocation.NOTIFICATION_PRIORITY_HIGH,
+      },
+      // Настройки для iOS
+      showsBackgroundLocationIndicator: true,
+      allowsBackgroundLocationUpdates: true,
+      // Настройки для экономии батареи
+      maxRecordsToPersist: 1000,
+      persistMode: BackgroundGeolocation.PERSIST_MODE_LOCATION,
       license,
     });
 

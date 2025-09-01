@@ -21,7 +21,7 @@ import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '..
 import { initLocation, getOneShotPosition, getBgGeoState, getLicenseInfo, getBgGeoLog, searchBgGeoLog, requestBgGeoPermission } from '../location';
 import { runBgGeoSmokeTest } from '../tests/bggeoSmokeTest';
 
-const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery, onNavigateToCameraTest }) => {
+const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery, onNavigateToCameraTest, onNavigateToBgGeoTest }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isShiftActive, setIsShiftActive] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -224,11 +224,12 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
         Alert.alert('Успех', 'Смена начата!');
         updateGeoDataCount();
         
-        // Инициализируем фоновый сервис
+        // Инициализируем фоновый сервис в тестовом режиме для удобства тестирования
         await backgroundService.initialize(
           currentUser.user_id || 123,
           1, // place_id
-          '123456789012345' // IMEI
+          '123456789012345', // IMEI
+          true // testMode = true для более частого сбора данных
         );
         
         // Добавляем фото в очередь фонового сервиса
@@ -376,6 +377,13 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
           updateBackgroundStats();
         } catch (error) {
           console.error('Error queuing/uploading end-shift photo:', error);
+        }
+        
+        // Принудительно собираем еще одну точку геоданных перед сохранением
+        try {
+          await backgroundService.collectGeoData();
+        } catch (error) {
+          console.error('Error collecting final geo data:', error);
         }
         
         // Сохраняем все собранные геоданные (не блокируем UI)
@@ -999,6 +1007,13 @@ Package: ${lic.packageName || 'N/A'}`;
               </TouchableOpacity>
 
               <TouchableOpacity
+                style={[styles.button, styles.bgGeoTestButton]}
+                onPress={onNavigateToBgGeoTest}
+              >
+                <Text style={styles.buttonText}>📍 BGGeo Test</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={[styles.button, styles.testButton]}
                 onPress={testAsyncStorage}
               >
@@ -1107,6 +1122,10 @@ const styles = StyleSheet.create({
   },
   cameraTestButton: {
     backgroundColor: '#9C27B0',
+  },
+
+  bgGeoTestButton: {
+    backgroundColor: '#4CAF50',
   },
   testButton: {
     backgroundColor: '#607D8B',

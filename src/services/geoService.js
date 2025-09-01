@@ -1,6 +1,6 @@
 import axios from 'axios';
 import BackgroundGeolocation from 'react-native-background-geolocation';
-import { API_CONFIG } from '../config/api';
+import { API_CONFIG, sendGeoDataToWebhook } from '../config/api';
 import { Platform } from 'react-native';
 
 class GeoService {
@@ -62,10 +62,40 @@ class GeoService {
       );
 
       if (response?.data && (response.data.success === true || response.status >= 200 && response.status < 300)) {
+        // Отправляем данные на webhook для мониторинга
+        try {
+          await sendGeoDataToWebhook({
+            success: true,
+            userId,
+            placeId,
+            phoneImei,
+            geoCount: this.geoData.length,
+            serverResponse: response.data,
+            timestamp: new Date().toISOString()
+          });
+        } catch (webhookError) {
+          console.log('Webhook error (non-critical):', webhookError.message);
+        }
+        
         // Очищаем отправленные данные
         this.geoData = [];
         return { success: true, data: response.data };
       } else {
+        // Отправляем ошибку на webhook
+        try {
+          await sendGeoDataToWebhook({
+            success: false,
+            userId,
+            placeId,
+            phoneImei,
+            geoCount: this.geoData.length,
+            error: response.data.message || 'Ошибка сохранения геоданных',
+            timestamp: new Date().toISOString()
+          });
+        } catch (webhookError) {
+          console.log('Webhook error (non-critical):', webhookError.message);
+        }
+        
         return { success: false, error: response.data.message || 'Ошибка сохранения геоданных' };
       }
     } catch (error) {
