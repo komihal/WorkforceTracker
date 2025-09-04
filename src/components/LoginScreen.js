@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import authService from '../services/authService';
+// permissions test removed
 
 const LoginScreen = ({ onLoginSuccess }) => {
   const [userLogin, setUserLogin] = useState('');
@@ -34,6 +35,8 @@ const LoginScreen = ({ onLoginSuccess }) => {
     if (digits.length <= 8) return `(${a}) ${b}-${c}`;
     return `(${a}) ${b}-${c}-${e}`;
   };
+
+  // testPermissions removed
 
   const handleLogin = async () => {
     const digitsOnly = userLogin.replace(/\D/g, '');
@@ -122,6 +125,8 @@ const LoginScreen = ({ onLoginSuccess }) => {
               <Text style={styles.buttonText}>Войти</Text>
             )}
           </TouchableOpacity>
+          
+          {/* test permissions button removed */}
         </View>
 
         {__DEV__ ? (
@@ -201,6 +206,10 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     backgroundColor: '#ccc',
+  },
+  testButton: {
+    backgroundColor: '#FF9500',
+    marginTop: 10,
   },
   buttonText: {
     color: '#fff',

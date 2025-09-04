@@ -12,24 +12,21 @@ import {
 import authService from '../services/authService';
 import punchService from '../services/punchService';
 import geoService from '../services/geoService';
-import fileUploadService from '../services/fileUploadService';
 import cameraService from '../services/cameraService';
-import backgroundService from '../services/backgroundService';
-import testAsyncStorage from '../../AsyncStorageTest';
+import fileUploadService from '../services/fileUploadService';
+import deviceUtils from '../utils/deviceUtils';
 import { ensureAlwaysLocationPermission } from '../services/permissionsService';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
-import { initLocation, getOneShotPosition, getBgGeoState, getLicenseInfo, getBgGeoLog, searchBgGeoLog, requestBgGeoPermission } from '../location';
-import { runBgGeoSmokeTest } from '../tests/bggeoSmokeTest';
+// import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
+import geoEndpointConfig, { ENDPOINT_MODES } from '../config/geoEndpointConfig';
 
-const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery, onNavigateToCameraTest, onNavigateToBgGeoTest }) => {
+const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isShiftActive, setIsShiftActive] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [userStatus, setUserStatus] = useState(WorkerStatus.READY_TO_WORK);
-  const [rawStatusData, setRawStatusData] = useState(null);
-  const [geoDataCount, setGeoDataCount] = useState(0);
-  const [lastLocation, setLastLocation] = useState(null);
-  const [backgroundStats, setBackgroundStats] = useState({ pendingPhotos: 0, pendingGeoData: 0, isRunning: false });
+  const [endpointMode, setEndpointMode] = useState(ENDPOINT_MODES.API);
+  const [endpointDescription, setEndpointDescription] = useState('API Django (для сохранения)');
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -40,23 +37,21 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
         checkWorkerStatus(user.user_id || 123);
       }
     };
+    
+    const loadEndpointMode = async () => {
+      const mode = await geoEndpointConfig.getCurrentMode();
+      const description = await geoEndpointConfig.getModeDescription();
+      setEndpointMode(mode);
+      setEndpointDescription(description);
+    };
+    
     loadUserData();
+    loadEndpointMode();
 
-    // Инициализируем BackgroundGeolocation (BGG) при старте экрана
-    (async () => {
-      try {
-        await initLocation();
-      } catch (e) {
-        try { console.log('initLocation error:', e); } catch (_) {}
-      }
-    })();
+    // Инициализация геолокации отключена - происходит только при входе в приложение
+    console.log('Location initialization disabled in MainScreen - handled by App.js on login');
 
-    // Обновляем статистику каждые 5 секунд
-    const statsInterval = setInterval(() => {
-      updateBackgroundStats();
-    }, 2000);
 
-    return () => clearInterval(statsInterval);
   }, []);
 
   // Проверка статуса работника
@@ -96,7 +91,19 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
         
         setIsShiftActive(isWorking);
         setUserStatus(normalized);
-        setRawStatusData(result.data);
+        // Автоматически включаем/выключаем трекинг по актуальному статусу
+        try {
+          const { startTracking, stopTracking } = require('../location');
+          if (isWorking) {
+            await startTracking();
+            console.log('Auto-start tracking based on current shift status');
+          } else {
+            await stopTracking();
+            console.log('Auto-stop tracking based on current shift status');
+          }
+        } catch (e) {
+          console.log('Tracking sync with status failed:', e?.message || e);
+        }
       }
     } catch (error) {
       console.error('Error checking worker status:', error);
@@ -195,7 +202,6 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
 
       // Получаем текущую геолокацию
       const location = await geoService.getCurrentLocation();
-      setLastLocation(location);
 
       // Добавляем геопозицию с правильным порядком параметров
       console.log('Adding geo point for punch in:', location);
@@ -211,35 +217,43 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       );
       console.log('Added geo point for punch in:', geoPoint);
 
-      // Выполняем punch in
+      // Сначала загружаем фото согласно требованиям API, затем отправляем punch in
+      const phoneImeiIn = await deviceUtils.getDeviceId();
+      const uploadIn = await fileUploadService.uploadShiftPhoto(
+        {
+          uri: photoResult.data?.uri,
+          type: photoResult.data?.type,
+          fileName: photoResult.data?.fileName || `start_${Date.now()}.jpg`,
+        },
+        currentUser.user_id || 123,
+        phoneImeiIn,
+        'start'
+      );
+
+      if (!uploadIn.success) {
+        Alert.alert('Ошибка', uploadIn.error || 'Не удалось загрузить фото начала смены');
+        setIsLoading(false);
+        return;
+      }
+
       const photoNameIn = (photoResult.data?.fileName) || `start_shift_${Date.now()}.jpg`;
       const result = await punchService.punchIn(
         currentUser.user_id || 123,
-        '123456789012345', // IMEI (в реальном приложении получать с устройства)
+        phoneImeiIn,
         photoNameIn
       );
 
             if (result.success) {
         setIsShiftActive(true);
         Alert.alert('Успех', 'Смена начата!');
-        updateGeoDataCount();
         
-        // Инициализируем фоновый сервис в тестовом режиме для удобства тестирования
-        await backgroundService.initialize(
-          currentUser.user_id || 123,
-          1, // place_id
-          '123456789012345', // IMEI
-          true // testMode = true для более частого сбора данных
-        );
-        
-        // Добавляем фото в очередь фонового сервиса
+        // Запускаем отслеживание геолокации при начале смены
         try {
-          await backgroundService.addPhotoToQueue(
-            photoResult.data.uri,
-            'start-shift'
-          );
-        } catch (error) {
-          console.error('Error adding photo to queue:', error);
+          const { startTracking } = require('../location');
+          await startTracking();
+          console.log('Location tracking started on punch in');
+        } catch (e) {
+          console.error('Failed to start tracking on punch in:', e?.message || e);
         }
       } else {
         Alert.alert('Ошибка', result.error);
@@ -338,7 +352,6 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
 
       // Получаем текущую геолокацию
       const location = await geoService.getCurrentLocation();
-      setLastLocation(location);
 
       // Добавляем финальную геопозицию с правильным порядком параметров
       console.log('Adding geo point for punch out:', location);
@@ -354,11 +367,29 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
       );
       console.log('Added geo point for punch out:', geoPoint);
 
-      // Выполняем punch out
+      // Сначала загружаем фото согласно требованиям API, затем отправляем punch out
+      const phoneImeiOut = await deviceUtils.getDeviceId();
+      const uploadOut = await fileUploadService.uploadShiftPhoto(
+        {
+          uri: photoResult.data?.uri,
+          type: photoResult.data?.type,
+          fileName: photoResult.data?.fileName || `end_${Date.now()}.jpg`,
+        },
+        currentUser.user_id || 123,
+        phoneImeiOut,
+        'end'
+      );
+
+      if (!uploadOut.success) {
+        Alert.alert('Ошибка', uploadOut.error || 'Не удалось загрузить фото завершения смены');
+        setIsLoading(false);
+        return;
+      }
+
       const photoNameOut = (photoResult.data?.fileName) || `end_shift_${Date.now()}.jpg`;
       const result = await punchService.punchOut(
         currentUser.user_id || 123,
-        '123456789012345',
+        phoneImeiOut,
         photoNameOut
       );
 
@@ -366,44 +397,42 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
         setIsShiftActive(false);
         Alert.alert('Успех', 'Смена завершена!');
         
-        // Добавляем фото в очередь и сразу выгружаем
+        // Останавливаем отслеживание геолокации при завершении смены
         try {
-          await backgroundService.addPhotoToQueue(
-            photoResult.data.uri,
-            'end-shift'
-          );
-          await backgroundService.forceUpload();
-          await backgroundService.loadPendingData();
-          updateBackgroundStats();
-        } catch (error) {
-          console.error('Error queuing/uploading end-shift photo:', error);
+          const { stopTracking } = require('../location');
+          await stopTracking();
+          console.log('Location tracking stopped on punch out');
+        } catch (e) {
+          console.error('Failed to stop tracking on punch out:', e?.message || e);
         }
-        
-        // Принудительно собираем еще одну точку геоданных перед сохранением
-        try {
-          await backgroundService.collectGeoData();
-        } catch (error) {
-          console.error('Error collecting final geo data:', error);
-        }
-        
-        // Сохраняем все собранные геоданные (не блокируем UI)
-        saveGeoData().finally(async () => {
-          // После выгрузки останавливаем фоновые задачи
-          backgroundService.stop();
-          await backgroundService.loadPendingData();
-          updateBackgroundStats();
-        });
-        // Разрешаем UI сразу, не дожидаясь фоновых завершений
-        setIsLoading(false);
-        return;
       } else {
         Alert.alert('Ошибка', result.error);
-        setIsLoading(false);
       }
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось завершить смену');
+    } finally {
       setIsLoading(false);
-    } finally {}
+    }
+  };
+
+  // Переключение режима отправки геолокации
+  const handleToggleEndpointMode = async () => {
+    const newMode = endpointMode === ENDPOINT_MODES.API ? ENDPOINT_MODES.WEBHOOK : ENDPOINT_MODES.API;
+    const success = await geoEndpointConfig.setMode(newMode);
+    
+    if (success) {
+      const description = await geoEndpointConfig.getModeDescription();
+      setEndpointMode(newMode);
+      setEndpointDescription(description);
+      
+      Alert.alert(
+        'Режим изменен',
+        `Геолокация теперь отправляется на: ${description}`,
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert('Ошибка', 'Не удалось изменить режим отправки');
+    }
   };
 
   // Сохранение геоданных
@@ -417,7 +446,6 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
 
       if (result.success) {
         Alert.alert('Успех', 'Геоданные сохранены!');
-        updateGeoDataCount();
       } else {
         Alert.alert('Ошибка', result.error);
       }
@@ -426,130 +454,9 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
     }
   };
 
-  // Обновление счетчика геоданных
-  const updateGeoDataCount = () => {
-    setGeoDataCount(geoService.getGeoDataCount());
-  };
+  // (dev test functions removed)
 
-  // Обновление статистики фонового сервиса
-  const updateBackgroundStats = () => {
-    const stats = backgroundService.getStats();
-    setBackgroundStats(stats);
-    console.log('Background stats:', stats);
-  };
 
-  // Добавление новой геопозиции
-  const addGeoPoint = async () => {
-    try {
-      console.log('=== ADDING GEO POINT ===');
-      
-      const location = await geoService.getCurrentLocation();
-      console.log('Raw location from geoService:', location);
-      
-      // Проверяем валидность координат
-      if (typeof location.latitude !== 'number' || typeof location.longitude !== 'number') {
-        console.error('Invalid coordinates:', location);
-        Alert.alert('Ошибка', 'Получены невалидные координаты');
-        return;
-      }
-      
-      // Проверяем диапазон координат
-      if (location.latitude < -90 || location.latitude > 90) {
-        console.error('Invalid latitude:', location.latitude);
-        Alert.alert('Ошибка', `Некорректная широта: ${location.latitude}`);
-        return;
-      }
-      
-      if (location.longitude < -180 || location.longitude > 180) {
-        console.error('Invalid longitude:', location.longitude);
-        Alert.alert('Ошибка', `Некорректная долгота: ${location.longitude}`);
-        return;
-      }
-      
-      console.log('Coordinates validation passed:', {
-        lat: location.latitude,
-        lon: location.longitude,
-        alt: location.altitude,
-        accuracy: location.accuracy
-      });
-      
-      // Добавляем геопозицию с правильным порядком параметров
-      const geoPoint = geoService.addGeoPoint(
-        location.latitude,    // lat
-        location.longitude,   // lon
-        location.altitude || 0,  // alt
-        (location.altitude || 0) + 5,  // altMsl (altitude + 5)
-        true,                 // hasAlt
-        true,                 // hasAltMsl
-        false,                // hasAltMslAccuracy
-        1.5                   // mslAccuracyMeters
-      );
-      
-      console.log('Added geo point:', geoPoint);
-      console.log('Total geo points:', geoService.getGeoDataCount());
-      console.log('=== END ADDING GEO POINT ===');
-      
-      setLastLocation(location);
-      updateGeoDataCount();
-      Alert.alert('Успех', `Геопозиция добавлена!\nШирота: ${location.latitude.toFixed(6)}\nДолгота: ${location.longitude.toFixed(6)}`);
-    } catch (error) {
-      console.error('Error adding geo point:', error);
-      
-      // Если это ошибка fallback координат эмулятора, предлагаем использовать тестовые координаты
-      if (error.message === 'EMULATOR_FALLBACK_COORDS') {
-        Alert.alert(
-          'Эмулятор GPS',
-          'Обнаружены тестовые координаты эмулятора. Использовать тестовые координаты Москвы?',
-          [
-            {
-              text: 'Отмена',
-              style: 'cancel',
-            },
-            {
-              text: 'Использовать тестовые',
-              onPress: () => addGeoPointWithTestCoords(),
-            },
-          ]
-        );
-        return;
-      }
-      
-      Alert.alert('Ошибка', `Не удалось получить геопозицию: ${error.message}`);
-    }
-  };
-
-  // Добавление геопозиции с тестовыми координатами для эмулятора
-  const addGeoPointWithTestCoords = () => {
-    try {
-      console.log('=== ADDING TEST GEO POINT ===');
-      
-      const testLocation = geoService.getTestCoordinates();
-      console.log('Test location:', testLocation);
-      
-      // Добавляем геопозицию с тестовыми координатами
-      const geoPoint = geoService.addGeoPoint(
-        testLocation.latitude,    // lat
-        testLocation.longitude,   // lon
-        testLocation.altitude || 0,  // alt
-        (testLocation.altitude || 0) + 5,  // altMsl (altitude + 5)
-        true,                 // hasAlt
-        true,                 // hasAltMsl
-        false,                // hasAltMslAccuracy
-        1.5                   // mslAccuracyMeters
-      );
-      
-      console.log('Added test geo point:', geoPoint);
-      console.log('Total geo points:', geoService.getGeoDataCount());
-      console.log('=== END ADDING TEST GEO POINT ===');
-      
-      setLastLocation(testLocation);
-      updateGeoDataCount();
-      Alert.alert('Успех', `Тестовая геопозиция добавлена!\nШирота: ${testLocation.latitude.toFixed(6)}\nДолгота: ${testLocation.longitude.toFixed(6)}\n\n(Тестовые координаты Москвы)`);
-    } catch (error) {
-      console.error('Error adding test geo point:', error);
-      Alert.alert('Ошибка', `Не удалось добавить тестовую геопозицию: ${error.message}`);
-    }
-  };
 
   // Выход из системы
   const handleLogout = async () => {
@@ -589,46 +496,7 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
               ⚠️ ВНИМАНИЕ: Пользователь заблокирован!
             </Text>
           )}
-          {__DEV__ && (
-            <>
-              <TouchableOpacity
-                style={[styles.button, styles.testButton, { marginTop: 10, padding: 8 }]}
-                onPress={() => {
-                  if (currentUser) {
-                    checkWorkerStatus(currentUser.user_id || 123);
-                  }
-                }}
-              >
-                <Text style={styles.buttonText}>🔄 Обновить статус</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: '#F44336', marginTop: 5, padding: 8 }]}
-                onPress={() => {
-                  setUserStatus(WorkerStatus.BLOCKED);
-                  setRawStatusData({ status: 'BLOCKED', is_working: false });
-                }}
-              >
-                <Text style={styles.buttonText}>🧪 Тест: Заблокирован</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: '#4CAF50', marginTop: 5, padding: 8 }]}
-                onPress={() => {
-                  setUserStatus(WorkerStatus.READY_TO_WORK);
-                  setRawStatusData({ status: 'READY_TO_WORK', is_working: false });
-                }}
-              >
-                <Text style={styles.buttonText}>🧪 Тест: 2ч</Text>
-              </TouchableOpacity>
-              <Text style={{ fontSize: 12, color: '#666', marginTop: 5, textAlign: 'center' }}>
-                Raw: {JSON.stringify({ userStatus, isShiftActive })}
-              </Text>
-              {rawStatusData && (
-                <Text style={{ fontSize: 10, color: '#999', marginTop: 3, textAlign: 'center' }}>
-                  API: {JSON.stringify(rawStatusData)}
-                </Text>
-              )}
-            </>
-          )}
+
         </View>
 
         <View style={styles.actions}>
@@ -766,262 +634,31 @@ const MainScreen = ({ onLogout, onNavigateToDeviceInfo, onNavigateToPhotoGallery
           )}
         </View>
 
-        {__DEV__ ? (
-        <View style={styles.geoSection}>
-          <Text style={styles.sectionTitle}>Геолокация</Text>
-          
-          <View style={styles.geoInfo}>
-            <Text style={styles.geoText}>Собрано точек: {geoDataCount}</Text>
-            {lastLocation && (
-              <Text style={styles.geoText}>
-                Последняя позиция: {lastLocation.latitude.toFixed(6)}, {lastLocation.longitude.toFixed(6)}
-              </Text>
-            )}
-          </View>
-
+        {/* Переключатель режима отправки геолокации */}
+        <View style={styles.endpointToggleSection}>
+          <Text style={styles.sectionTitle}>Режим отправки геолокации</Text>
           <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={async () => {
-              const res = await runBgGeoSmokeTest({
-                licenseKey: "7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf",
-                // webhookUrl: "https://webhook.site/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX", // optional
-                timeoutSec: 30,
-              });
-              Alert.alert(
-                res.ok ? "BGG Smoke: OK" : "BGG Smoke: FAIL",
-                [
-                  `bundleId: ${res.bundleId}`,
-                  `gotLocation: ${res.gotLocation}`,
-                  `httpOk: ${res.httpOk === null ? 'n/a' : res.httpOk}`,
-                  res.errors.length ? `errors: ${res.errors.join(' | ')}` : 'no errors',
-                ].join('\n')
-              );
-              try { console.log('BGG SMOKE RESULT:', res); } catch {}
-            }}
+            style={[styles.button, styles.endpointToggleButton]}
+            onPress={handleToggleEndpointMode}
           >
-            <Text style={styles.buttonText}>🧪 BGG: Smoke-test ключа</Text>
+            <Text style={styles.buttonText}>
+              {endpointMode === ENDPOINT_MODES.WEBHOOK ? '🔗' : '💾'} {endpointDescription}
+            </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={addGeoPoint}
-          >
-            <Text style={styles.buttonText}>Добавить геопозицию</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={addGeoPointWithTestCoords}
-          >
-            <Text style={styles.buttonText}>🧪 Тестовые координаты (Москва)</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={async () => {
-              const res = await getOneShotPosition();
-              if (res && !res.error) {
-                Alert.alert('BGG One-shot', `lat=${res.coords?.latitude}, lon=${res.coords?.longitude}`);
-                try { console.log('BGG getCurrentPosition:', res); } catch (_) {}
-              } else {
-                Alert.alert('BGG One-shot ошибка', String(res?.error || 'unknown'));
-              }
-            }}
-          >
-            <Text style={styles.buttonText}>🧪 BGG: One-shot позиция</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={async () => {
-              const state = await getBgGeoState();
-              if (state && !state.error) {
-                Alert.alert('BGG Состояние', `enabled=${state.enabled}, trackingMode=${state.trackingMode ?? 'n/a'}`);
-                try { console.log('BGG getState:', state); } catch (_) {}
-              } else {
-                Alert.alert('BGG Состояние ошибка', String(state?.error || 'unknown'));
-              }
-            }}
-          >
-            <Text style={styles.buttonText}>🧪 BGG: Состояние плагина</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={() => {
-              try {
-                const lic = getLicenseInfo();
-                Alert.alert('BGG Лицензия', `env=${lic.envVar}\nесть=${lic.licensePresent ? 'Да' : 'Нет'}\ninit=${lic.initSucceeded ? 'Да' : 'Нет'}${lic.lastInitError ? `\nerr=${lic.lastInitError}` : ''}`);
-                try { console.log('BGG license info:', lic); } catch (_) {}
-              } catch (e) {
-                Alert.alert('BGG Лицензия', String(e?.message || e));
-              }
-            }}
-          >
-            <Text style={styles.buttonText}>🧪 BGG: Статус лицензии</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={async () => {
-              const log = await getBgGeoLog();
-              try { console.log('BGG Log:\n', log); } catch (_) {}
-              Alert.alert('BGG Лог (первые 2к симв.)', String(log).slice(0, 2000));
-            }}
-          >
-            <Text style={styles.buttonText}>🧪 BGG: Логи</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={async () => {
-              const hits = await searchBgGeoLog('(license|invalid|error|denied|package)');
-              try { console.log('BGG Log (filtered):\n', hits); } catch (_) {}
-              Alert.alert('BGG Лог (фильтр license/error)', String(hits).slice(0, 2000));
-            }}
-          >
-            <Text style={styles.buttonText}>🧪 BGG: Поиск ошибок</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={async () => {
-              const status = await requestBgGeoPermission();
-              Alert.alert('BGG Разрешения', JSON.stringify(status));
-            }}
-          >
-            <Text style={styles.buttonText}>🧪 BGG: Запрос разрешений</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.geoButton]}
-            onPress={async () => {
-              try {
-                const lic = getLicenseInfo();
-                const state = await getBgGeoState();
-                const position = await getOneShotPosition();
-                
-                const summary = `Platform: ${lic.platform}
-Init: ${lic.initSucceeded ? 'Да' : 'Нет'}
-License: ${lic.licensePresent ? 'Да' : 'Нет'}
-State enabled: ${state?.enabled || 'N/A'}
-Position: ${position?.error ? 'Ошибка' : 'Получена'}
-Package: ${lic.packageName || 'N/A'}`;
-                
-                Alert.alert('BGG Детальный тест', summary);
-                console.log('BGG License Info:', lic);
-                console.log('BGG State:', state);
-                console.log('BGG Position:', position);
-              } catch (e) {
-                Alert.alert('BGG Тест ошибка', e.message);
-              }
-            }}
-          >
-            <Text style={styles.buttonText}>🧪 BGG: Детальный тест</Text>
-          </TouchableOpacity>
-
-          {geoDataCount > 0 && (
-            <TouchableOpacity
-              style={[styles.button, styles.saveButton]}
-              onPress={saveGeoData}
-            >
-              <Text style={styles.buttonText}>Сохранить геоданные</Text>
-            </TouchableOpacity>
-          )}
+          <Text style={styles.endpointDescription}>
+            {endpointMode === ENDPOINT_MODES.WEBHOOK 
+              ? 'Данные отправляются на webhook для мониторинга' 
+              : 'Данные сохраняются в базе данных Django'}
+          </Text>
         </View>
-        ) : null}
 
-        {__DEV__ ? (
-        <View style={styles.backgroundSection}>
-          <Text style={styles.sectionTitle}>Фоновый сервис</Text>
-          
-          <View style={styles.backgroundInfo}>
-            <Text style={styles.backgroundText}>
-              Статус: {backgroundStats.isRunning ? '🟢 Активен' : '🔴 Неактивен'}
-            </Text>
-            <Text style={styles.backgroundText}>
-              Фото в очереди: {backgroundStats.pendingPhotos}
-            </Text>
-            <Text style={styles.backgroundText}>
-              Геоданные в очереди: {backgroundStats.pendingGeoData}
-            </Text>
-          </View>
 
-          {backgroundStats.isRunning && (
-            <TouchableOpacity
-              style={[styles.button, styles.forceUploadButton]}
-              onPress={async () => {
-                await backgroundService.forceUpload();
-                updateBackgroundStats();
-              }}
-            >
-              <Text style={styles.buttonText}>Принудительная отправка</Text>
-            </TouchableOpacity>
-          )}
 
-          {(
-            <TouchableOpacity
-              style={[styles.button, styles.testButton]}
-              onPress={async () => {
-                try {
-                  // Временная отладка: очистка очередей
-                  backgroundService.pendingPhotos = [];
-                  backgroundService.pendingGeoData = [];
-                  await backgroundService.savePendingData();
-                  updateBackgroundStats();
-                  Alert.alert('Готово', 'Очереди очищены');
-                } catch (e) {
-                  Alert.alert('Ошибка', 'Не удалось очистить очереди');
-                }
-              }}
-            >
-              <Text style={styles.buttonText}>Очистить очереди (отладка)</Text>
-            </TouchableOpacity>
-          )}
 
-        </View>
-        ) : null}
 
         <View style={styles.bottomButtons}>
-          {__DEV__ ? (
-            <>
-              <TouchableOpacity
-                style={[styles.button, styles.deviceInfoButton]}
-                onPress={onNavigateToDeviceInfo}
-              >
-                <Text style={styles.buttonText}>Информация об устройстве</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.photoGalleryButton]}
-                onPress={onNavigateToPhotoGallery}
-              >
-                <Text style={styles.buttonText}>📸 Фотогалерея</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.cameraTestButton]}
-                onPress={onNavigateToCameraTest}
-              >
-                <Text style={styles.buttonText}>🧪 Тест Камеры</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.bgGeoTestButton]}
-                onPress={onNavigateToBgGeoTest}
-              >
-                <Text style={styles.buttonText}>📍 BGGeo Test</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.testButton]}
-                onPress={testAsyncStorage}
-              >
-                <Text style={styles.buttonText}>🧪 Тест AsyncStorage</Text>
-              </TouchableOpacity>
-            </>
-          ) : null}
-
+          {/* dev/test buttons removed */}
+          
           <TouchableOpacity
             style={[styles.button, styles.logoutButton]}
             onPress={handleLogout}
@@ -1102,33 +739,8 @@ const styles = StyleSheet.create({
   punchOutButton: {
     backgroundColor: '#F44336',
   },
-  geoButton: {
-    backgroundColor: '#2196F3',
-  },
-  saveButton: {
-    backgroundColor: '#FF9800',
-  },
-  forceUploadButton: {
-    backgroundColor: '#E91E63',
-  },
   logoutButton: {
     backgroundColor: '#9E9E9E',
-  },
-  deviceInfoButton: {
-    backgroundColor: '#9C27B0',
-  },
-  photoGalleryButton: {
-    backgroundColor: '#FF5722',
-  },
-  cameraTestButton: {
-    backgroundColor: '#9C27B0',
-  },
-
-  bgGeoTestButton: {
-    backgroundColor: '#4CAF50',
-  },
-  testButton: {
-    backgroundColor: '#607D8B',
   },
 
   buttonDisabled: {
@@ -1139,44 +751,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  geoSection: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  backgroundSection: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
+
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
     marginBottom: 15,
   },
-  geoInfo: {
-    marginBottom: 15,
-  },
-  backgroundInfo: {
-    marginBottom: 15,
-  },
-  geoText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
-  },
-  backgroundText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
-  },
+
   bottomButtons: {
     flexDirection: 'column',
     gap: 10,
   },
+  endpointToggleSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  endpointToggleButton: {
+    backgroundColor: '#2196F3',
+    marginBottom: 10,
+  },
+  endpointDescription: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
 });
 
 export default MainScreen;

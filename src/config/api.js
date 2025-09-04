@@ -5,7 +5,7 @@ export const API_CONFIG = {
     AUTH: '/auth/',
     PUNCH: '/punch/',
     DB_SAVE: '/db_save/',
-    FILE_UPLOAD: '/file_upload/',
+    FILE_UPLOAD: '/api/file_upload/',
     USER_PHOTOS: '/api/user-photos/',
     WORKER_STATUS: '/api/worker-status/',
     WORKER_REVIEW: '/api/worker-review/',
@@ -26,16 +26,17 @@ export const getApiTokenHeaders = () => ({
   'Api-token': API_CONFIG.API_TOKEN,
 });
 
+
 // Webhook конфигурация для мониторинга фоновой активности
 export const WEBHOOK_CONFIG = {
-  MONITORING_URL: 'http://217.114.2.152:8000/webhook/',
-  GEO_DATA_URL: 'http://217.114.2.152:8000/webhook/geo',
-  PHOTO_UPLOAD_URL: 'http://217.114.2.152:8000/webhook/photo',
-  BACKGROUND_ACTIVITY_URL: 'http://217.114.2.152:8000/webhook/background',
+  MONITORING_URL: 'https://api.tabelshik.com/webhook/',
+  GEO_DATA_URL: 'https://api.tabelshik.com/webhook/geo',
+  PHOTO_UPLOAD_URL: 'https://api.tabelshik.com/webhook/photo',
+  BACKGROUND_ACTIVITY_URL: 'https://api.tabelshik.com/webhook/background',
   ENABLED: true,
   TIMEOUT: 10000,
   RETRY_ATTEMPTS: 3,
-  LOG_ALL_ACTIVITY: true,
+  LOG_ALL_ACTIVITY: false,
 };
 
 // Функция для отправки данных на webhook
@@ -83,10 +84,39 @@ export const sendGeoDataToWebhook = async (geoData) => {
 };
 
 export const sendBackgroundActivityToWebhook = async (activityData) => {
+  // Monitoring of background activity is disabled to avoid duplicate webhook traffic
+  if (!WEBHOOK_CONFIG.LOG_ALL_ACTIVITY) {
+    return { success: false, skipped: true };
+  }
   return await sendToWebhook(activityData, 'background_activity');
 };
 
 export const sendPhotoUploadToWebhook = async (photoData) => {
   return await sendToWebhook(photoData, 'photo_upload');
+};
+
+// Функция для отправки геолокации на webhook
+export const sendLocationToWebhook = async (locationData) => {
+  const webhookData = {
+    type: 'location',
+    timestamp: new Date().toISOString(),
+    data: {
+      lat: locationData.lat,
+      lon: locationData.lon,
+      accuracy: locationData.accuracy,
+      speed: locationData.speed,
+      heading: locationData.heading,
+      ts: locationData.ts,
+      batt: locationData.batt,
+      motion: locationData.motion,
+      alt: locationData.alt,
+      altmsl: locationData.altmsl,
+      userId: locationData.userId,
+      placeId: locationData.placeId,
+      phoneImei: locationData.phoneImei
+    }
+  };
+  
+  return await sendToWebhook(webhookData, 'location');
 };
 

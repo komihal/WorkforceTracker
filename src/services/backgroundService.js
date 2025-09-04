@@ -1,17 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
 import geoService from './geoService';
-import { sendBackgroundActivityToWebhook } from '../config/api';
+// Background activity webhook disabled
 import fileUploadService from './fileUploadService';
 import BackgroundGeolocation from 'react-native-background-geolocation';
 
 class BackgroundService {
   constructor() {
     this.isRunning = false;
-    this.intervalId = null;
-    this.uploadIntervalId = null;
     this.pendingPhotos = [];
     this.pendingGeoData = [];
+    this.intervalId = null;
+    this.uploadIntervalId = null;
     this.currentUserId = null;
     this.currentPlaceId = null;
     this.currentPhoneImei = null;
@@ -143,6 +143,7 @@ class BackgroundService {
     
     if (timeSinceLastCollection > expectedInterval * 1.5) {
       console.log(`Missed geo collection detected. Time since last: ${Math.round(timeSinceLastCollection / 1000)}s`);
+      
       // Собираем геоданные немедленно
       this.collectGeoData();
     }
@@ -263,76 +264,62 @@ class BackgroundService {
   }
 
   // Добавление фотографии в очередь
-  async addPhotoToQueue(photoUri, fileTag = 'user-photo') {
+  async addPhotoToQueue(photoData) {
+    const photo = {
+      id: Date.now(),
+      data: photoData,
+      uploaded: false,
+      timestamp: new Date().toISOString()
+    };
+    
+    this.pendingPhotos.push(photo);
+    await this.savePendingData();
+    
+    console.log('Photo added to queue:', photo.id);
+  }
+
+  // Загрузка сохраненных данных
+  async loadPendingData() {
     try {
-      const photoData = {
-        uri: photoUri,
-        fileTag,
-        timestamp: Date.now(),
-        uploaded: false
-      };
+      const savedPhotos = await AsyncStorage.getItem('pendingPhotos');
+      const savedGeoData = await AsyncStorage.getItem('pendingGeoData');
       
-      this.pendingPhotos.push(photoData);
-      await this.savePendingData();
+      if (savedPhotos) {
+        this.pendingPhotos = JSON.parse(savedPhotos);
+      }
       
-      console.log('Photo added to queue:', photoData);
+      if (savedGeoData) {
+        this.pendingGeoData = JSON.parse(savedGeoData);
+      }
+      
+      console.log(`Loaded pending data: ${this.pendingPhotos.length} photos, ${this.pendingGeoData.length} geo points`);
     } catch (error) {
-      console.error('Error adding photo to queue:', error);
+      console.error('Error loading pending data:', error);
     }
   }
 
   // Сохранение данных в локальное хранилище
   async savePendingData() {
     try {
-      const dataToSave = {
-        photos: this.pendingPhotos,
-        geoData: this.pendingGeoData,
-        timestamp: Date.now()
-      };
-      
-      await AsyncStorage.setItem(
-        `background_data_${this.currentUserId}`,
-        JSON.stringify(dataToSave)
-      );
+      await AsyncStorage.setItem('pendingPhotos', JSON.stringify(this.pendingPhotos));
+      await AsyncStorage.setItem('pendingGeoData', JSON.stringify(this.pendingGeoData));
     } catch (error) {
       console.error('Error saving pending data:', error);
     }
   }
 
-  // Загрузка данных из локального хранилища
-  async loadPendingData() {
-    try {
-      const savedData = await AsyncStorage.getItem(
-        `background_data_${this.currentUserId}`
-      );
-      
-      if (savedData) {
-        const parsedData = JSON.parse(savedData);
-        this.pendingPhotos = parsedData.photos || [];
-        this.pendingGeoData = parsedData.geoData || [];
-        
-        console.log('Loaded pending data:', {
-          photos: this.pendingPhotos.length,
-          geoData: this.pendingGeoData.length
-        });
-      }
-    } catch (error) {
-      console.error('Error loading pending data:', error);
-    }
-  }
-
-  // Обработка накопленных данных при активации приложения
+  // Обработка накопленных данных
   async processPendingData() {
     if (this.pendingPhotos.length > 0 || this.pendingGeoData.length > 0) {
-      console.log('Processing pending data on app activation');
+      console.log(`Processing pending data: ${this.pendingPhotos.length} photos, ${this.pendingGeoData.length} geo points`);
       await this.uploadPendingData();
     }
   }
 
-  // Отправка накопленных данных на сервер
+  // Отправка накопленных данных
   async uploadPendingData() {
-    if (!this.currentUserId || !this.currentPlaceId || !this.currentPhoneImei) {
-      console.log('Cannot upload data - missing user info');
+    if (!this.isRunning) {
+      console.log('Background service not running, skipping upload');
       return;
     }
 
@@ -341,32 +328,10 @@ class BackgroundService {
       console.log(`Photos to upload: ${this.pendingPhotos.filter(p => !p.uploaded).length}`);
       console.log(`Geo points to upload: ${this.pendingGeoData.length}`);
 
-      // Отправляем фотографии
-      for (let i = 0; i < this.pendingPhotos.length; i++) {
-        const photo = this.pendingPhotos[i];
-        if (!photo.uploaded) {
-          try {
-            const result = await fileUploadService.uploadPhoto(
-              photo.uri,
-              this.currentUserId,
-              this.currentPlaceId,
-              this.currentPhoneImei,
-              photo.fileTag
-            );
-            
-            if (result.success) {
-              photo.uploaded = true;
-              console.log('Photo uploaded successfully:', photo.fileTag);
-              // Удаляем локальный файл из очереди сразу после отметки uploaded
-              await this.savePendingData();
-            }
-          } catch (error) {
-            console.error('Error uploading photo:', error);
-          }
-          
-          // Небольшая задержка между загрузками
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+      // Фото больше не загружаются автоматически из фонового сервиса.
+      // Требование: загрузка фото ТОЛЬКО по нажатию кнопок начала/окончания смены.
+      if (this.pendingPhotos.some(p => !p.uploaded)) {
+        console.log('[backgroundService] Skipping photo uploads (allowed only on punch in/out).');
       }
 
       // Отправляем геоданные
@@ -391,13 +356,8 @@ class BackgroundService {
         }
       }
 
-      // Очищаем успешно загруженные данные
-      const before = this.pendingPhotos.length;
+      // Удаляем загруженные фотографии
       this.pendingPhotos = this.pendingPhotos.filter(photo => !photo.uploaded);
-      const after = this.pendingPhotos.length;
-      if (before !== after) {
-        console.log(`Pending photos reduced: ${before} -> ${after}`);
-      }
       await this.savePendingData();
       
       console.log(`[${new Date().toLocaleTimeString()}] Upload cycle completed`);
@@ -450,19 +410,7 @@ class BackgroundService {
       console.log(`[${new Date().toLocaleTimeString()}] Background upload triggered - ${this.pendingGeoData.length} geo points`);
       
       // Отправляем информацию о фоновой активности на webhook
-      try {
-        await sendBackgroundActivityToWebhook({
-          type: 'background_upload_started',
-          appState: this.appState,
-          pendingGeoData: this.pendingGeoData.length,
-          pendingPhotos: this.pendingPhotos.length,
-          userId: this.currentUserId,
-          placeId: this.currentPlaceId,
-          timestamp: new Date().toISOString()
-        });
-      } catch (webhookError) {
-        console.log('Webhook error (non-critical):', webhookError.message);
-      }
+      // background activity webhook suppressed
       
       try {
         const result = await geoService.saveGeoData(
@@ -474,52 +422,19 @@ class BackgroundService {
         if (result.success) {
           console.log(`[${new Date().toLocaleTimeString()}] Background geo data upload successful!`);
           
-          // Отправляем успешный результат на webhook
-          try {
-            await sendBackgroundActivityToWebhook({
-              type: 'background_upload_success',
-              appState: this.appState,
-              uploadedGeoData: this.pendingGeoData.length,
-              result: result,
-              timestamp: new Date().toISOString()
-            });
-          } catch (webhookError) {
-            console.log('Webhook error (non-critical):', webhookError.message);
-          }
+          // success webhook suppressed
           
           this.pendingGeoData = [];
           await this.savePendingData();
         } else {
           console.log(`[${new Date().toLocaleTimeString()}] Background geo data upload failed:`, result.error);
           
-          // Отправляем ошибку на webhook
-          try {
-            await sendBackgroundActivityToWebhook({
-              type: 'background_upload_failed',
-              appState: this.appState,
-              pendingGeoData: this.pendingGeoData.length,
-              error: result.error,
-              timestamp: new Date().toISOString()
-            });
-          } catch (webhookError) {
-            console.log('Webhook error (non-critical):', webhookError.message);
-          }
+          // failure webhook suppressed
         }
       } catch (error) {
         console.error(`[${new Date().toLocaleTimeString()}] Background upload error:`, error);
         
-        // Отправляем ошибку на webhook
-        try {
-          await sendBackgroundActivityToWebhook({
-            type: 'background_upload_error',
-            appState: this.appState,
-            pendingGeoData: this.pendingGeoData.length,
-            error: error.message,
-            timestamp: new Date().toISOString()
-          });
-        } catch (webhookError) {
-          console.log('Webhook error (non-critical):', webhookError.message);
-        }
+        // error webhook suppressed
       }
     }
   }
@@ -531,24 +446,13 @@ class BackgroundService {
       const BackgroundGeolocation = require('react-native-background-geolocation').default;
       
       // Вместо setTimeout используем BackgroundGeolocation события
-      // Подписываемся на HEARTBEAT события для принудительного получения позиции
+      // Подписываемся на HEARTBEAT события для принудительного получения позиции (without extra webhooks)
       BackgroundGeolocation.onHeartbeat(async (event) => {
         if (this.appState !== 'active' && this.pendingGeoData.length > 0) {
           const now = new Date().toLocaleTimeString();
           console.log(`[${now}] HEARTBEAT triggered - forcing location update for background upload...`);
           
-          try {
-            // Отправляем информацию на webhook о планировании
-            await sendBackgroundActivityToWebhook({
-              type: 'background_heartbeat_triggered',
-              appState: this.appState,
-              timestamp: new Date().toISOString(),
-              pendingGeoData: this.pendingGeoData.length,
-              heartbeatEvent: event
-            });
-          } catch (webhookError) {
-            console.log('Webhook error (non-critical):', webhookError.message);
-          }
+          // planning webhook suppressed
           
           // Принудительно получаем позицию через BackgroundGeolocation
           try {
@@ -562,22 +466,7 @@ class BackgroundService {
             
             console.log(`[${new Date().toLocaleTimeString()}] BackgroundGeolocation position received via HEARTBEAT, triggering upload...`);
             
-            // Отправляем информацию на webhook о получении позиции
-            try {
-              await sendBackgroundActivityToWebhook({
-                type: 'background_location_received_via_heartbeat',
-                appState: this.appState,
-                timestamp: new Date().toISOString(),
-                pendingGeoData: this.pendingGeoData.length,
-                location: {
-                  lat: location.coords.latitude,
-                  lon: location.coords.longitude,
-                  accuracy: location.coords.accuracy
-                }
-              });
-            } catch (webhookError) {
-              console.log('Webhook error (non-critical):', webhookError.message);
-            }
+            // location-received webhook suppressed
             
             // Запускаем загрузку
             await this.backgroundUpload();
@@ -588,6 +477,7 @@ class BackgroundService {
             // Даже при ошибке пытаемся загрузить накопленные данные
             if (this.pendingGeoData.length > 0) {
               console.log(`[${new Date().toLocaleTimeString()}] Attempting upload despite location error...`);
+              
               await this.backgroundUpload();
             }
           }

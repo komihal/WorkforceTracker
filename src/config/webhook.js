@@ -8,7 +8,7 @@ export const WEBHOOK_CONFIG = {
   BACKGROUND_ACTIVITY_URL: 'https://webhook.site/e0a0b957-d425-4537-b3d9-36f5416ec32e/background',
   
   // Настройки
-  ENABLED: true, // Включить/выключить webhook
+  ENABLED: false, // Включить/выключить webhook
   TIMEOUT: 10000, // Таймаут в мс
   RETRY_ATTEMPTS: 3, // Количество попыток
   LOG_ALL_ACTIVITY: true, // Логировать всю активность

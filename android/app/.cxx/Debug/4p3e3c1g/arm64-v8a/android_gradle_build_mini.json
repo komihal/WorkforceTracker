@@ -1,0 +1,43 @@
+{
+  "buildFiles": [
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-image-picker/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/user/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/4p3e3c1g/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/user/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/4p3e3c1g/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "react_codegen_RNImagePickerSpec::@f66ee9a2efecfb28bee4": {
+      "artifactName": "react_codegen_RNImagePickerSpec",
+      "abi": "arm64-v8a",
+      "runtimeFiles": []
+    },
+    "appmodules::@6890427a1f51a3e7e1df": {
+      "artifactName": "appmodules",
+      "abi": "arm64-v8a",
+      "output": "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/build/intermediates/cxx/Debug/4p3e3c1g/obj/arm64-v8a/libappmodules.so",
+      "runtimeFiles": [
+        "/Users/user/.gradle/caches/8.11.1/transforms/fa1de6917d42be7ce8116836ee165d55/transformed/fbjni-0.7.0/prefab/modules/fbjni/libs/android.arm64-v8a/libfbjni.so",
+        "/Users/user/.gradle/caches/8.11.1/transforms/94591d67b6d4fe97e1328c09dffe571e/transformed/react-android-0.80.2-debug/prefab/modules/jsi/libs/android.arm64-v8a/libjsi.so",
+        "/Users/user/.gradle/caches/8.11.1/transforms/94591d67b6d4fe97e1328c09dffe571e/transformed/react-android-0.80.2-debug/prefab/modules/reactnative/libs/android.arm64-v8a/libreactnative.so"
+      ]
+    },
+    "react_codegen_rnasyncstorage::@1596841e19ec5b9eeffe": {
+      "artifactName": "react_codegen_rnasyncstorage",
+      "abi": "arm64-v8a",
+      "runtimeFiles": []
+    }
+  }
+}

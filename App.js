@@ -1,18 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, View, Text, StyleSheet, BackHandler } from 'react-native';
+import { SafeAreaView, Text, BackHandler } from 'react-native';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
-import DeviceInfoScreen from './src/components/DeviceInfoScreen';
-import PhotoGalleryScreen from './src/components/PhotoGalleryScreen';
-import CameraTestScreen from './src/components/CameraTestScreen';
-import BgGeoTestScreen from './src/components/BgGeoTestScreen';
 import authService from './src/services/authService';
-import backgroundService from './src/services/backgroundService';
-import { initLocation } from './src/location';
+import { initLocation, resetLocationInit } from './src/location';
+import { Alert } from 'react-native';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('login');
-  const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -20,34 +15,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Инициализируем фоновой геотрекинг (прочитает ключи из .env)
-    initLocation();
-    
-    // Инициализируем BackgroundService для работы в фоне
-    const initBackgroundService = async () => {
-      try {
-        const user = await authService.getCurrentUser();
-        if (user) {
-          console.log('Initializing BackgroundService for existing user:', user.user_id);
-          await backgroundService.initialize(
-            user.user_id,
-            1, // place_id по умолчанию
-            '123456789012345', // IMEI по умолчанию
-            __DEV__ // тестовый режим в dev
-          );
-        }
-      } catch (error) {
-        console.log('BackgroundService not initialized (no user):', error.message);
-      }
-    };
-    
-    initBackgroundService();
+    console.log('===== APP USEFFECT CALLED =====');
+    console.log('Current screen:', currentScreen);
 
     const onBackPress = () => {
-      if (currentScreen === 'photoGallery' || currentScreen === 'deviceInfo' || currentScreen === 'cameraTest' || currentScreen === 'bgGeoTest') {
-        setCurrentScreen('main');
-        return true; // Обрабатываем "назад" сами
-      }
       // Для экранам 'main' и 'login' используем поведение по умолчанию (выход из приложения)
       return false;
     };
@@ -60,20 +31,26 @@ export default function App() {
     try {
       const user = await authService.getCurrentUser();
       if (user) {
-        setCurrentUser(user);
         setCurrentScreen('main');
         
-        // Инициализируем BackgroundService для существующего пользователя
+        // Инициализируем геолокацию для существующего пользователя
+        console.log('Initializing location tracking for existing user...');
+        console.log('User data:', user);
         try {
-          console.log('Initializing BackgroundService for existing user:', user.user_id);
-          await backgroundService.initialize(
-            user.user_id,
-            1, // place_id по умолчанию
-            '123456789012345', // IMEI по умолчанию
-            __DEV__ // тестовый режим в dev
-          );
-        } catch (error) {
-          console.log('BackgroundService initialization error:', error.message);
+          // Сначала сбрасываем состояние
+          console.log('Calling resetLocationInit...');
+          await resetLocationInit();
+          console.log('resetLocationInit completed');
+          
+          // Затем инициализируем
+          console.log('Calling initLocation...');
+          await initLocation();
+          console.log('Location initialization completed');
+          
+          // BackgroundService отключен для избежания дублирования отправок
+          console.log('BackgroundService disabled to prevent duplicate location sending');
+        } catch (locationError) {
+          console.error('Location initialization failed:', locationError);
         }
       }
     } catch (error) {
@@ -83,52 +60,34 @@ export default function App() {
     }
   };
 
-  const handleLoginSuccess = (userData) => {
-    setCurrentUser(userData);
+  const handleLoginSuccess = async (userData) => {
     setCurrentScreen('main');
     
-    // Инициализируем BackgroundService для нового пользователя
-    const initService = async () => {
-      try {
-        console.log('Initializing BackgroundService for new user:', userData.user_id);
-        await backgroundService.initialize(
-          userData.user_id,
-          1, // place_id по умолчанию
-          '123456789012345', // IMEI по умолчанию
-          __DEV__ // тестовый режим в dev
-        );
-      } catch (error) {
-        console.log('BackgroundService initialization error:', error.message);
-      }
-    };
-    
-    initService();
+    // Инициализируем геолокацию для нового пользователя
+    console.log('Initializing location tracking for new user...');
+    try {
+      // Сначала сбрасываем состояние
+      console.log('Calling resetLocationInit for new user...');
+      await resetLocationInit();
+      console.log('resetLocationInit completed for new user');
+      
+      // Затем инициализируем
+      console.log('Calling initLocation for new user...');
+      await initLocation();
+      console.log('Location initialization completed for new user');
+      
+      // BackgroundService отключен для избежания дублирования отправок
+      console.log('BackgroundService disabled to prevent duplicate location sending');
+    } catch (locationError) {
+      console.error('Location initialization failed:', locationError);
+    }
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
     setCurrentScreen('login');
   };
 
-  const navigateToDeviceInfo = () => {
-    setCurrentScreen('deviceInfo');
-  };
 
-  const navigateToMain = () => {
-    setCurrentScreen('main');
-  };
-
-  const navigateToPhotoGallery = () => {
-    setCurrentScreen('photoGallery');
-  };
-
-  const navigateToCameraTest = () => {
-    setCurrentScreen('cameraTest');
-  };
-
-  const navigateToBgGeoTest = () => {
-    setCurrentScreen('bgGeoTest');
-  };
 
   if (isLoading) {
     return (
@@ -145,36 +104,7 @@ export default function App() {
       case 'main':
         return (
           <MainScreen 
-            onLogout={handleLogout} 
-            onNavigateToDeviceInfo={navigateToDeviceInfo}
-            onNavigateToPhotoGallery={navigateToPhotoGallery}
-            onNavigateToCameraTest={navigateToCameraTest}
-            onNavigateToBgGeoTest={navigateToBgGeoTest}
-          />
-        );
-      case 'deviceInfo':
-        return (
-          <DeviceInfoScreen 
-            onBack={navigateToMain}
-          />
-        );
-      case 'photoGallery':
-        return (
-          <PhotoGalleryScreen 
-            onBack={navigateToMain}
-            userId={currentUser?.user_id || 123}
-          />
-        );
-      case 'cameraTest':
-        return (
-          <CameraTestScreen 
-            onBack={navigateToMain}
-          />
-        );
-      case 'bgGeoTest':
-        return (
-          <BgGeoTestScreen 
-            onBack={navigateToMain}
+            onLogout={handleLogout}
           />
         );
       default:

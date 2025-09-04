@@ -20,9 +20,18 @@
       android:roundIcon="@mipmap/ic_launcher_round"
       android:allowBackup="false"
       android:theme="@style/AppTheme"
-      android:supportsRtl="true">
+      android:supportsRtl="true"
+      android:hardwareAccelerated="true"
+      android:largeHeap="true">
       <!-- Transistorsoft Background Geolocation license (for native validation on Android) -->
-      <meta-data android:name="com.transistorsoft.bggeo.license" android:value="${BG_GEO_LICENSE_ANDROID}"/>
+      <meta-data android:name="com.transistorsoft.locationmanager.license" android:value="7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf"/>
+      
+      <!-- OPPO/OnePlus specific metadata -->
+      <meta-data android:name="RegisterAgentType" android:value="1"/>
+      <meta-data android:name="AccessoryServicesLocation" android:value="1"/>
+      <meta-data android:name="oplus.view.mirror.enable" android:value="false"/>
+      <meta-data android:name="oplus.view.mirror.support" android:value="false"/>
+      
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

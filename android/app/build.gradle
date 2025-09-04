@@ -85,7 +85,6 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     ndkVersion rootProject.ext.ndkVersion
-    buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.workforcetracker"
@@ -99,10 +98,10 @@ android {
         resConfigs 'en', 'ru'
         // Pass Transistorsoft license into AndroidManifest via placeholder (from .env)
         manifestPlaceholders = [
-            BG_GEO_LICENSE_ANDROID: (project.hasProperty('BG_GEO_LICENSE_ANDROID') ? project.property('BG_GEO_LICENSE_ANDROID') : (System.getenv('BG_GEO_LICENSE_ANDROID') ?: ''))
+            BG_GEO_LICENSE_ANDROID: project.env.get("BG_GEO_LICENSE_ANDROID") ?: '7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf'
         ]
     }
-    signingConfigs {
+    signingConfigs {но 
         debug {
             storeFile file('debug.keystore')
             storePassword 'android'
@@ -147,7 +146,7 @@ android {
     }
 
     // Exclude unnecessary metadata files from the final APK
-    packagingOptions {
+    packaging {
         resources {
             excludes += [
                 'META-INF/DEPENDENCIES',

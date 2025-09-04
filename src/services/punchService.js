@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_CONFIG, getBearerHeaders } from '../config/api';
+import { API_CONFIG, getApiTokenHeaders } from '../config/api';
 
 class PunchService {
   constructor() {
@@ -21,7 +21,7 @@ class PunchService {
         phone_imei: phoneImei,
         photo_name: photoName,
       }, {
-        headers: getBearerHeaders(),
+        headers: getApiTokenHeaders(),
       });
 
       if (response.data && response.data.success) {
@@ -104,7 +104,7 @@ class PunchService {
         phone_imei: phoneImei,
         photo_name: photoName,
       }, {
-        headers: getBearerHeaders(),
+        headers: getApiTokenHeaders(),
       });
 
       if (response.data && response.data.success) {
@@ -183,11 +183,11 @@ class PunchService {
       console.log('Requesting status for user_id:', userId);
       console.log('User ID type:', typeof userId);
       console.log('Full URL:', `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.WORKER_STATUS}?user_id=${userId}`);
-      console.log('Headers:', getBearerHeaders());
+      console.log('Headers:', getApiTokenHeaders());
       
       const response = await this.axiosInstance.get(
         `${API_CONFIG.ENDPOINTS.WORKER_STATUS}?user_id=${userId}`,
-        { headers: getBearerHeaders() }
+        { headers: getApiTokenHeaders() }
       );
 
       console.log('Response status:', response.status);
@@ -286,7 +286,7 @@ class PunchService {
           api_token: API_CONFIG.API_TOKEN,
           user_id: userId,
         },
-        { headers: getBearerHeaders() }
+        { headers: getApiTokenHeaders() }
       );
 
       if (response.data && response.data.success) {

@@ -1,0 +1,54 @@
+{
+  "buildFiles": [
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-image-picker/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/user/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/4p3e3c1g/x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/user/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/4p3e3c1g/x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "appmodules::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86",
+      "artifactName": "appmodules",
+      "output": "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/build/intermediates/cxx/Debug/4p3e3c1g/obj/x86/libappmodules.so",
+      "runtimeFiles": [
+        "/Users/user/.gradle/caches/8.11.1/transforms/fa9bc89be32f67e0e99aeadfac658747/transformed/fbjni-0.7.0/prefab/modules/fbjni/libs/android.x86/libfbjni.so",
+        "/Users/user/.gradle/caches/8.11.1/transforms/3043f8b4be7d66d8c6955fc5bee68e61/transformed/react-android-0.80.2-debug/prefab/modules/jsi/libs/android.x86/libjsi.so",
+        "/Users/user/.gradle/caches/8.11.1/transforms/3043f8b4be7d66d8c6955fc5bee68e61/transformed/react-android-0.80.2-debug/prefab/modules/reactnative/libs/android.x86/libreactnative.so"
+      ]
+    },
+    "react_codegen_RNImagePickerSpec::@f66ee9a2efecfb28bee4": {
+      "toolchain": "toolchain",
+      "abi": "x86",
+      "artifactName": "react_codegen_RNImagePickerSpec"
+    },
+    "react_codegen_rnasyncstorage::@1596841e19ec5b9eeffe": {
+      "toolchain": "toolchain",
+      "abi": "x86",
+      "artifactName": "react_codegen_rnasyncstorage"
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/Users/user/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/Users/user/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}
