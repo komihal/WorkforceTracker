@@ -18,7 +18,7 @@ export const GEO_CONFIG = {
   // Обычный режим (продакшн) - более консервативные настройки для экономии батареи
   PRODUCTION_MODE: {
     // Дистанционный фильтр для BackgroundGeolocation (метры)
-    DISTANCE_FILTER: 20, // 20 метров для экономии батареи
+    DISTANCE_FILTER: 0, // 0 метров для максимальной точности отслеживания
     
     // Heartbeat интервал для BackgroundGeolocation (секунды)
     HEARTBEAT_INTERVAL: 60, // 60 секунд для экономии батареи
