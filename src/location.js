@@ -2,6 +2,13 @@
 // Пробуем разные способы импорта BackgroundGeolocation
 let BGGeo;
 
+// Ручные отправки отключены - используется встроенный uploader BackgroundGeolocation
+import Config from 'react-native-config';
+import { Platform } from 'react-native';
+import authService from './services/authService';
+
+// Headless Task будет настроен после инициализации BGGeo
+
 try {
   // Правильный способ импорта react-native-background-geolocation v4.x
   const BackgroundGeolocation = require('react-native-background-geolocation');
@@ -50,11 +57,9 @@ try {
   console.error('Failed to import BackgroundGeolocation:', error);
   BGGeo = null;
 }
-import { postLocation } from './api';
-import { Platform } from 'react-native';
-import { API_CONFIG } from './config/api';
 import { getGeoConfig } from './config/geoConfig';
-import geoEndpointConfig from './config/geoEndpointConfig';
+
+// Функция checkActiveShift удалена - теперь через встроенный uploader BG
 
 let isInit = false;
 let initAttempted = false;
@@ -63,13 +68,7 @@ let lastInitError = null;
 let currentLicense = null;
 let currentEnvVarName = null;
 let lastLocationSent = Date.now(); // Время последней отправки геолокации - инициализируем текущим временем
-const LOCATION_SEND_THROTTLE = __DEV__ ? 10000 : 30000; // 10 секунд в тесте, 30 в продакшене
-let periodicSendInterval = null; // Интервал для периодической отправки
 let trackingEnabled = false; // Включена ли отправка локаций (смена активна)
-const SEND_GUARD_WINDOW_MS = 4000; // анти-двойник в рамках 4с
-let sendGuardUntilTs = 0;
-const canSendNow = () => Date.now() >= sendGuardUntilTs;
-const armSendGuard = () => { sendGuardUntilTs = Date.now() + SEND_GUARD_WINDOW_MS; };
 
 // Функция для сброса состояния инициализации
 export async function resetLocationInit() {
@@ -94,14 +93,11 @@ export async function resetLocationInit() {
   lastLocationSent = Date.now(); // Инициализируем текущим временем
   console.log('Location state reset - isInit:', isInit);
   
-  // Останавливаем периодическую отправку
-  if (periodicSendInterval) {
-    clearInterval(periodicSendInterval);
-    periodicSendInterval = null;
-    console.log('Periodic location send interval cleared');
-  }
-  
   console.log('Location initialization state reset completed');
+}
+
+export async function initBgGeo() {
+  return await initLocation();
 }
 
 export async function initLocation() {
@@ -174,11 +170,7 @@ export async function initLocation() {
     console.log('Failed to read license from .env:', error.message);
   }
   
-  // Если лицензия не найдена в .env, используем хардкодированную для тестирования
-  if (!license && Platform.OS === 'android') {
-    license = '7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf';
-    console.log('Using hardcoded license for testing');
-  }
+  // Хардкод лицензии удален - используйте .env файл
   // Санитизация ключа (часто лишние пробелы/кавычки из .env)
   if (typeof license === 'string') {
     license = license.trim();
@@ -217,211 +209,93 @@ export async function initLocation() {
   console.log('BGGeo.onLocation is available, proceeding with initialization...');
 
   BGGeo.onLocation(async (location) => {
-    if (!trackingEnabled) {
-      console.log('onLocation suppressed: tracking disabled');
-      return;
-    }
-    // В режиме heartbeat-only не отправляем из onLocation
-    console.log('onLocation event received (heartbeat-only mode)');
-    // Если хотите иногда отправлять из onLocation, раскомментируйте ниже и добавьте guard.
-    return;
-    console.log(`[${new Date().toLocaleTimeString()}] BackgroundGeolocation.onLocation triggered (type: ${location.activity?.type || 'unknown'})`);
-    const c = location.coords || {};
-    const ts = new Date(location.timestamp || Date.now()).toISOString();
-    const batt = location.battery?.level ?? null;
-    const motion = location.activity?.type ?? null;
-    const now = Date.now();
-
-    // Throttling: проверяем, прошло ли достаточно времени с последней отправки
-    const timeSinceLastSend = now - lastLocationSent;
-    console.log(`[${new Date().toLocaleTimeString()}] Location received - time since last send: ${Math.round(timeSinceLastSend / 1000)}s (throttle: ${LOCATION_SEND_THROTTLE / 1000}s)`);
+    console.log('[BG][location]', location.coords.latitude, location.coords.longitude);
     
-    if (timeSinceLastSend < LOCATION_SEND_THROTTLE) {
-      console.log(`[${new Date().toLocaleTimeString()}] Location throttled - too soon since last send (${Math.round(timeSinceLastSend / 1000)}s ago, need ${LOCATION_SEND_THROTTLE / 1000}s)`);
-      return;
-    }
-
-    console.log(`[${new Date().toLocaleTimeString()}] Location received in location.js:`, {
-      lat: c.latitude,
-      lon: c.longitude,
-      accuracy: c.accuracy,
-      timestamp: ts
-    });
-
-    // Отправляем в зависимости от выбранного режима (webhook или API)
-    if (API_CONFIG.BASE_URL && API_CONFIG.BASE_URL === 'https://api.tabelshik.com') {
-      try {
-        // Проверяем, что пользователь аутентифицирован
-        const authService = require('./services/authService').default;
-        const currentUser = await authService.getCurrentUser();
-        
-        if (currentUser && currentUser.user_id) {
-          const endpointMode = await geoEndpointConfig.getCurrentMode();
-          
-          if (endpointMode === 'webhook') {
-            // Отправляем на webhook
-            console.log(`[${new Date().toLocaleTimeString()}] Sending location via webhook...`);
-            const { sendLocationToWebhook } = require('./config/api');
-            await sendLocationToWebhook({
-              lat: c.latitude,
-              lon: c.longitude,
-              accuracy: c.accuracy,
-              speed: c.speed,
-              heading: c.heading,
-              ts,
-              batt,
-              motion,
-              alt: c.altitude,
-              altmsl: c.altitude,
-              userId: currentUser.user_id,
-              placeId: 1, // По умолчанию
-              phoneImei: '123456789012345' // По умолчанию
-            });
-            console.log(`[${new Date().toLocaleTimeString()}] Location sent successfully via webhook`);
-            lastLocationSent = now; // Обновляем время последней отправки
-          } else {
-            // Отправляем на API Django (по умолчанию)
-            console.log(`[${new Date().toLocaleTimeString()}] Sending location via postLocation API...`);
-            try {
-              await postLocation({
-                lat: c.latitude,
-                lon: c.longitude,
-                accuracy: c.accuracy,
-                speed: c.speed,
-                heading: c.heading,
-                ts,
-                batt,
-                motion,
-                alt: c.altitude,
-                altmsl: c.altitude,
-              });
-              console.log(`[${new Date().toLocaleTimeString()}] Location sent successfully via postLocation API`);
-              lastLocationSent = now; // Обновляем время последней отправки
-            } catch (error) {
-              console.error(`[${new Date().toLocaleTimeString()}] Error sending location via postLocation API:`, error.message);
-            }
-          }
-        } else {
-          console.log(`[${new Date().toLocaleTimeString()}] Location received but user not authenticated, skipping API call`);
-        }
-      } catch (e) {
-        console.error(`[${new Date().toLocaleTimeString()}] Ошибка отправки местоположения:`, e);
-      }
-    } else {
-      console.log(`[${new Date().toLocaleTimeString()}] API не настроен, местоположение не отправляется`);
-    }
-    
-    // BackgroundService отключен для избежания дублирования отправок
-    // Отправляем только напрямую через postLocation API
-    console.log(`[${new Date().toLocaleTimeString()}] Location sent directly via postLocation API only`);
+    // Логируем получение геолокации, встроенный uploader отправит данные автоматически
+    console.log('[BG][onLocation] Location received, uploader will handle sending');
   }); 
 
   // Проверяем, что onError доступен (необязательно)
-  if (BGGeo && typeof BGGeo.onError === 'function') {
-    console.log('BGGeo.onError is available, setting up error handler...');
-    BGGeo.onError((e) => {
-      console.log('BGGeo error', e);
-      // Сохраняем последнюю ошибку для отображения статуса
-      try {
-        lastInitError = typeof e === 'string' ? e : (e?.message || JSON.stringify(e));
-      } catch (_) {}
-    });
-  } else {
-    console.log('BGGeo.onError is not available, skipping error handler setup');
+  console.log('Checking BGGeo.onError availability...');
+  try {
+    if (BGGeo && typeof BGGeo.onError === 'function') {
+      console.log('BGGeo.onError is available, setting up error handler...');
+      BGGeo.onError((e) => {
+        console.log('BGGeo error', e);
+        // Сохраняем последнюю ошибку для отображения статуса
+        try {
+          lastInitError = typeof e === 'string' ? e : (e?.message || JSON.stringify(e));
+        } catch (_) {}
+      });
+    } else {
+      console.log('BGGeo.onError is not available, skipping error handler setup');
+    }
+  } catch (error) {
+    console.log('Error setting up onError handler:', error);
   }
 
-  // Добавляем обработчик heartbeat для периодической отправки
-  BGGeo.onHeartbeat(async (location) => {
-    if (!trackingEnabled) {
-      console.log('onHeartbeat suppressed: tracking disabled');
-      return;
-    }
-    console.log(`[${new Date().toLocaleTimeString()}] BackgroundGeolocation.onHeartbeat triggered`);
-    // В heartbeat координаты находятся в location.location.coords
-    const actualLocation = location.location || location;
-    const c = actualLocation.coords || {};
-    console.log(`[${new Date().toLocaleTimeString()}] Heartbeat coords:`, c);
-    const ts = new Date(actualLocation.timestamp || Date.now()).toISOString();
-    const now = Date.now();
+  // Диагностические подписки (без тяжёлых операций)
+  console.log('Setting up diagnostic subscriptions...');
+  BGGeo.onMotionChange(e => console.log('[BG][motionchange]', e.isMoving));
+  BGGeo.onActivityChange(e => console.log('[BG][activity]', e.activity, e.confidence));
+  BGGeo.onProviderChange(e => console.log('[BG][provider]', e.status, e.gps));
+  BGGeo.onEnabledChange(enabled => console.log('[BG][enabled]', enabled));
+  console.log('Diagnostic subscriptions set up');
+  
+  // Добавляем обработчики для встроенной синхронизации BGGeo
+  if (BGGeo.onSync) {
+    BGGeo.onSync((batch) => {
+      console.log('[BGGeo Sync] Native sync completed:', batch);
+    });
+  } else {
+    console.log('BGGeo.onSync not available, skipping sync handler');
+  }
+  
+  // Добавляем обработчик для HTTP запросов
+  if (BGGeo.onHttp) {
+    BGGeo.onHttp((response) => {
+      console.log('[BGGeo HTTP] Native HTTP response:', response);
+    });
+  } else {
+    console.log('BGGeo.onHttp not available, skipping HTTP handler');
+  }
 
-    // Для heartbeat отправляем с защитой от дублей и троттлингом
-    if (!canSendNow()) {
-      console.log('Heartbeat send suppressed by guard window');
-      return;
-    }
-    const timeSinceLastSend = now - lastLocationSent;
-    if (timeSinceLastSend < LOCATION_SEND_THROTTLE) {
-      console.log(`Heartbeat throttled (${Math.round(timeSinceLastSend/1000)}s < ${LOCATION_SEND_THROTTLE/1000}s)`);
-      return;
-    }
-    armSendGuard();
-
-    try {
-      // Проверяем, что пользователь аутентифицирован
-      const authService = require('./services/authService').default;
-      const currentUser = await authService.getCurrentUser();
-      
-      if (currentUser && currentUser.user_id) {
-        const endpointMode = await geoEndpointConfig.getCurrentMode();
-        
-        if (endpointMode === 'webhook') {
-          console.log(`[${new Date().toLocaleTimeString()}] Sending heartbeat via webhook...`);
-          const { sendLocationToWebhook } = require('./config/api');
-          await sendLocationToWebhook({
-            lat: c.latitude,
-            lon: c.longitude,
-            accuracy: c.accuracy,
-            speed: c.speed,
-            heading: c.heading,
-            ts,
-            batt: actualLocation.battery?.level ?? null,
-            motion: actualLocation.activity?.type ?? null,
-            alt: c.altitude,
-            altmsl: c.altitude,
-            userId: currentUser.user_id,
-            placeId: 1,
-            phoneImei: '123456789012345',
-            isHeartbeat: true
-          });
-          lastLocationSent = now;
-          console.log(`[${new Date().toLocaleTimeString()}] Heartbeat sent successfully via webhook`);
-        } else {
-          console.log(`[${new Date().toLocaleTimeString()}] Sending heartbeat via postLocation API...`);
-          await postLocation({
-            lat: c.latitude,
-            lon: c.longitude,
-            accuracy: c.accuracy,
-            speed: c.speed,
-            heading: c.heading,
-            ts,
-            batt: actualLocation.battery?.level ?? null,
-            motion: actualLocation.activity?.type ?? null,
-            alt: c.altitude,
-            altmsl: c.altitude,
-            isHeartbeat: true
-          });
-          lastLocationSent = now;
-          console.log(`[${new Date().toLocaleTimeString()}] Heartbeat sent successfully via postLocation API`);
-        }
-      } else {
-        console.log(`[${new Date().toLocaleTimeString()}] Heartbeat received but user not authenticated, skipping`);
-      }
-    } catch (error) {
-      console.error(`[${new Date().toLocaleTimeString()}] Error sending heartbeat:`, error.message);
-    }
+  // Обработчик heartbeat - только логирование с троттлингом
+  let lastHeartbeatCall = 0;
+  const HEARTBEAT_MIN_INTERVAL_MS = 60000; // 60s
+  
+  BGGeo.onHeartbeat((location) => {
+    const t = Date.now();
+    if (t - lastHeartbeatCall < HEARTBEAT_MIN_INTERVAL_MS) return;
+    lastHeartbeatCall = t;
+    
+    console.log(`[${new Date().toLocaleTimeString()}] BG Heartbeat received:`, {
+      lat: location.location?.coords?.latitude || location.coords?.latitude,
+      lon: location.location?.coords?.longitude || location.coords?.longitude,
+      timestamp: new Date(location.timestamp).toLocaleTimeString()
+    });
   });
 
   try {
     // Включаем логгер максимально подробно в dev, до ready
     if (__DEV__) {
       try {
-        await BGGeo.logger.setEnabled(true);
-        await BGGeo.logger.setLevel(BGGeo.LOG_LEVEL_VERBOSE);
-      } catch (_) {}
+        if (BGGeo.logger) {
+          await BGGeo.logger.setEnabled(true);
+          await BGGeo.logger.setLevel(BGGeo.LOG_LEVEL_VERBOSE);
+          console.log('BGGeo logger enabled');
+        } else {
+          console.log('BGGeo logger not available');
+        }
+      } catch (error) {
+        console.log('BGGeo logger error:', error);
+      }
     }
 
     // Получаем конфигурацию в зависимости от режима
+    console.log('Getting geo config...');
     const geoConfig = getGeoConfig();
+    console.log('Geo config received:', geoConfig);
     
     console.log('Initializing BackgroundGeolocation with config:', {
       mode: __DEV__ ? 'TEST' : 'PRODUCTION',
@@ -431,51 +305,57 @@ export async function initLocation() {
       license: currentLicense ? 'Present' : 'Missing'
     });
 
+    // Конфигурация с встроенным uploader
     const state = await BGGeo.ready({
       reset: true,
       desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
       distanceFilter: geoConfig.DISTANCE_FILTER,
       stopOnTerminate: false,
       startOnBoot: true,
-      pausesLocationUpdatesAutomatically: false,
-      showsBackgroundLocationIndicator: true,
-      // Отключаем автоматическую отправку - используем только ручную через onLocation
-      autoSync: false,
-      batchSync: false,
-      // Настраиваем heartbeat в зависимости от режима
       heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
-      maxDaysToPersist: 7,
-      debug: false, // Отключаем debug для устранения звуков
-      logLevel: BGGeo.LOG_LEVEL_INFO, // Уменьшаем уровень логирования
       foregroundService: true,
       enableHeadless: true,
-      // Настройки для Android
-      notification: {
-        title: 'WorkforceTracker',
-        text: __DEV__ ? 'Тестовый режим - частое отслеживание' : 'Отслеживание местоположения активно',
-        channelName: 'Location Tracking',
-        priority: BGGeo.NOTIFICATION_PRIORITY_LOW,
-        // Отключаем звуки и вибрацию
-        sound: false,
-        vibrate: false,
-        silent: true,
-        // Дополнительные настройки для отключения звуков
-        smallIcon: 'ic_launcher',
-        largeIcon: 'ic_launcher',
-        color: '#000000',
-        // Отключаем звуки в notification channel
-        channelDescription: 'Silent location tracking',
-        channelShowBadge: false,
-        channelEnableLights: false,
-        channelEnableVibration: false,
-        channelSound: null,
+      preventSuspend: true,
+      
+      // Android-тюнинг, чтобы не «засыпал» и стабильно давал точки
+      locationUpdateInterval: 15000,
+      fastestLocationUpdateInterval: 10000,
+      stationaryRadius: 20,                // меньше → быстрее выйдет из stationary
+      stopTimeout: geoConfig.STOP_TIMEOUT, // 1(dev)/5(prod) минут
+      disableElasticity: true,             // не растягивать интервалы «по усмотрению» ОС
+
+      // Включаем встроенный uploader с правильной конфигурацией
+      autoSync: true,
+      batchSync: true,
+      url: 'https://api.tabelshik.com/api/db_save/',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Api-Token': 'wqHJerK834'
       },
-      // Настройки для iOS
-      showsBackgroundLocationIndicator: true,
-      allowsBackgroundLocationUpdates: true,
-      // Настройки для экономии батареи
-      maxRecordsToPersist: 1000,
-      persistMode: BGGeo.PERSIST_MODE_LOCATION,
+      
+      // Правильная конфигурация для SDK
+      httpRootProperty: 'geo_array',
+      locationTemplate:
+        '{"lat":<%= latitude %>,' +
+        '"lon":<%= longitude %>,' +
+        '"utm":"<%= Math.floor(timestamp/1000) %>",' +
+        '"alt":<%= altitude || 0 %>,' +
+        '"altmsl":<%= (altitude||0)+5 %>,' +
+        '"hasalt":<%= !!altitude %>,' +
+        '"hasaltmsl":<%= !!altitude %>,' +
+        '"hasaltmslaccuracy":<%= (accuracy && accuracy < 5) ? true : false %>,' +
+        '"mslaccuracyMeters":<%= accuracy || 0 %>}',
+      
+      params: {
+        api_token: 'wqHJerK834',
+        user_id: 57, // будет перезаписан при старте смены
+        place_id: 2,
+        phone_imei: Config.DEVICE_IMEI || '123456789012345'
+      },
+      
+      logLevel: BGGeo.LOG_LEVEL_INFO,
+      debug: false,
       license,
     });
 
@@ -505,141 +385,68 @@ export async function initLocation() {
     console.log('BackgroundGeolocation initialization completed successfully');
     console.log('Periodic location send disabled - using only BackgroundGeolocation heartbeat');
     
-    // Периодическая отправка отключена - используем только heartbeat от BackgroundGeolocation
-    // startPeriodicLocationSend(); // Отключено для избежания дублирования
-    
-  } catch (e) {
+    // Headless task теперь регистрируется в src/services/bgGeo/headless.ts
+    // Периодическая отправка удалена - теперь через встроенный uploader BG
+  } catch (error) {
     initSucceeded = false;
-    try {
-      lastInitError = e?.message || JSON.stringify(e);
-    } catch (_) {
-      lastInitError = 'Неизвестная ошибка инициализации BackgroundGeolocation';
-    }
-    console.error('BackgroundGeolocation init failed:', lastInitError);
-    console.error('Full error object:', e);
+    lastInitError = error?.message || JSON.stringify(error);
+    console.error('BackgroundGeolocation initialization failed:', lastInitError);
+    console.error('Full error object:', error);
   }
 }
 
-// Функция для запуска периодической отправки геолокации
-export function startPeriodicLocationSend() {
-  console.log(`[${new Date().toLocaleTimeString()}] ===== startPeriodicLocationSend called =====`);
-  
-  if (periodicSendInterval) {
-    clearInterval(periodicSendInterval);
-    console.log('Cleared existing periodic interval');
+// Функции для управления трекингом
+export async function startTracking(userId) {
+  if (!BGGeo) {
+    console.warn('BGGeo not initialized');
+    return;
   }
   
-  const interval = __DEV__ ? 10000 : 30000; // 10 секунд в тесте, 30 в продакшене
-  console.log(`[${new Date().toLocaleTimeString()}] Starting periodic location send every ${interval / 1000} seconds`);
-  console.log(`[${new Date().toLocaleTimeString()}] BGGeo available:`, !!BGGeo);
+  // Устанавливаем глобальную переменную для transform функции
+  global.currentUserId = userId;
   
-  periodicSendInterval = setInterval(async () => {
-    try {
-      console.log(`[${new Date().toLocaleTimeString()}] === PERIODIC INTERVAL TRIGGERED ===`);
-      
-      // Получаем текущую позицию
-      const location = await BGGeo.getCurrentPosition({
-        timeout: 15,
-        samples: 1,
-        persist: false,
-        desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
-      });
-      
-      console.log(`[${new Date().toLocaleTimeString()}] Periodic location received:`, {
-        lat: location.coords.latitude,
-        lon: location.coords.longitude,
-        accuracy: location.coords.accuracy
-      });
-      
-      // Проверяем, что пользователь аутентифицирован
-      const authService = require('./services/authService').default;
-      const currentUser = await authService.getCurrentUser();
-      
-      if (!currentUser || !currentUser.user_id) {
-        console.log(`[${new Date().toLocaleTimeString()}] Periodic send - user not authenticated, skipping`);
-        return;
-      }
-      
-      const c = location.coords || {};
-      const ts = new Date(location.timestamp || Date.now()).toISOString();
-      
-      // Отправляем в зависимости от выбранного режима
-      const endpointMode = await geoEndpointConfig.getCurrentMode();
-      
-      if (endpointMode === 'webhook') {
-        console.log(`[${new Date().toLocaleTimeString()}] Periodic sending via webhook...`);
-        const { sendLocationToWebhook } = require('./config/api');
-        await sendLocationToWebhook({
-          lat: c.latitude,
-          lon: c.longitude,
-          accuracy: c.accuracy,
-          speed: c.speed,
-          heading: c.heading,
-          ts,
-          batt: location.battery?.level ?? null,
-          motion: location.activity?.type ?? null,
-          alt: c.altitude,
-          altmsl: c.altitude,
-          userId: currentUser.user_id,
-          placeId: 1,
-          phoneImei: '123456789012345',
-          isPeriodic: true
-        });
-        console.log(`[${new Date().toLocaleTimeString()}] Periodic location sent successfully via webhook`);
-      } else {
-        console.log(`[${new Date().toLocaleTimeString()}] Periodic sending via postLocation API...`);
-        const { postLocation } = require('./api');
-        await postLocation({
-          lat: c.latitude,
-          lon: c.longitude,
-          accuracy: c.accuracy,
-          speed: c.speed,
-          heading: c.heading,
-          ts,
-          batt: location.battery?.level ?? null,
-          motion: location.activity?.type ?? null,
-          alt: c.altitude,
-          altmsl: c.altitude,
-          isPeriodic: true
-        });
-        console.log(`[${new Date().toLocaleTimeString()}] Periodic location sent successfully via postLocation API`);
-      }
-      
-      // Обновляем время последней отправки
-      lastLocationSent = Date.now();
-      
-    } catch (error) {
-      console.error(`[${new Date().toLocaleTimeString()}] Error in periodic location send:`, error.message);
+  // Обновляем конфигурацию с правильным user_id
+  await BGGeo.setConfig({
+    params: {
+      api_token: 'wqHJerK834',
+      user_id: userId,
+      place_id: 2,
+      phone_imei: Config.DEVICE_IMEI || '123456789012345'
     }
-  }, interval);
-}
-
-export async function startTracking() {
-  trackingEnabled = true;
-  try {
-    await BGGeo.start();
-    console.log('BGGeo started; trackingEnabled=true');
-  } catch (e) {
-    console.error('Failed to start BGGeo:', e?.message || e);
+  });
+  
+  await BGGeo.start();
+  
+  // По флагу — форсируем "движение", чтобы в фоне сразу пошли точки
+  if (Platform.OS === 'android' && Config.BG_FORCE_PACE_ON_START === '1') {
+    try {
+      await BGGeo.changePace(true);
+      console.log('[BG] changePace(true) forced on start');
+    } catch (e) {
+      console.log('[BG] changePace error', e);
+    }
   }
+  
+  const state = await BGGeo.getState();
+  console.log('[BG] state after start:', state.enabled, state.isMoving);
 }
 
 export async function stopTracking() {
-  trackingEnabled = false;
-  try {
-    await BGGeo.stop();
-    console.log('BGGeo stopped; trackingEnabled=false');
-  } catch (e) {
-    console.error('Failed to stop BGGeo:', e?.message || e);
+  if (!BGGeo) {
+    console.warn('BGGeo not initialized');
+    return;
   }
   
-  // Останавливаем периодическую отправку
-  if (periodicSendInterval) {
-    clearInterval(periodicSendInterval);
-    periodicSendInterval = null;
-    console.log('Periodic location send stopped');
+  await BGGeo.stop();
+  if (Platform.OS === 'android' && Config.BG_FORCE_PACE_ON_START === '1') {
+    try { 
+      await BGGeo.changePace(false); 
+    } catch {}
   }
 }
+
+// Функция startPeriodicLocationSend удалена - теперь через встроенный uploader BG
+
 
 export function removeListeners() {
   BGGeo.removeListeners();
@@ -667,7 +474,7 @@ export function getLicenseInfo() {
     configDetails: {
       configAndroid: 'string',
       configIOS: 'undefined',
-      hardcodedUsed: Platform.OS === 'android' && currentLicense === '7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf'
+      hardcodedUsed: false // Хардкод удален
     }
   };
 }

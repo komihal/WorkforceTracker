@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, Text, BackHandler } from 'react-native';
+import { SafeAreaView, Text, BackHandler, AppState } from 'react-native';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
 import authService from './src/services/authService';
-import { initLocation, resetLocationInit } from './src/location';
+import punchService from './src/services/punchService';
+import deviceUtils from './src/utils/deviceUtils';
+import { initBgGeo, startTracking } from './src/location.js';
+import backgroundService from './src/services/backgroundService';
+import { getGeoConfig } from './src/config/geoConfig';
 import { Alert } from 'react-native';
 
 export default function App() {
@@ -27,30 +31,83 @@ export default function App() {
     return () => subscription.remove();
   }, [currentScreen]);
 
+  // Обработчик состояния приложения для автоматического закрытия смены
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState) => {
+      console.log('App state changed to:', nextAppState);
+      
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Приложение уходит в фон или становится неактивным
+        console.log('App going to background - auto-close DISABLED for testing');
+        
+        // ВРЕМЕННО ОТКЛЮЧЕНО для тестирования
+        // try {
+        //   const currentUser = await authService.getCurrentUser();
+        //   if (currentUser && currentUser.user_id) {
+        //     console.log('App going to background - checking if shift is active...');
+        //     
+        //     // Проверяем, активна ли смена
+        //     const shiftResult = await punchService.getShiftStatus(currentUser.user_id);
+        //     if (shiftResult.success && shiftResult.data.shift_active) {
+        //       console.log('Shift is active, auto-closing...');
+        //       
+        //       // Останавливаем отслеживание геолокации
+        //       // TODO: Добавить функцию остановки BG Geo
+        //       
+        //       // Автоматически закрываем смену
+        //       const phoneImei = await deviceUtils.getDeviceId();
+        //       const autoPunchResult = await punchService.autoPunchOut(currentUser.user_id, phoneImei);
+        //       
+        //       if (autoPunchResult.success) {
+        //         console.log('Shift auto-closed successfully');
+        //       } else {
+        //         console.error('Failed to auto-close shift:', autoPunchResult.error);
+        //       }
+        //     } else {
+        //       console.log('Shift is not active, no need to close');
+        //     }
+        //   }
+        // } catch (error) {
+        //   console.error('Error in app state change handler:', error);
+        // }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, []);
+
   const checkAuthStatus = async () => {
     try {
       const user = await authService.getCurrentUser();
       if (user) {
         setCurrentScreen('main');
         
-        // Инициализируем геолокацию для существующего пользователя
-        console.log('Initializing location tracking for existing user...');
+        // Инициализируем BG Geolocation для существующего пользователя
+        console.log('Initializing BG Geolocation for existing user...');
         console.log('User data:', user);
         try {
-          // Сначала сбрасываем состояние
-          console.log('Calling resetLocationInit...');
-          await resetLocationInit();
-          console.log('resetLocationInit completed');
+          // Инициализируем новый единый модуль BG Geo
+          console.log('Calling initBgGeo...');
+          const geoConfig = getGeoConfig();
+          await initBgGeo({
+            debug: __DEV__,
+            distanceFilter: geoConfig.DISTANCE_FILTER,
+            heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
+            stopTimeout: geoConfig.STOP_TIMEOUT,
+          });
+          console.log('BG Geolocation initialization completed');
           
-          // Затем инициализируем
-          console.log('Calling initLocation...');
-          await initLocation();
-          console.log('Location initialization completed');
+          // Стартуем трекинг с userId
+          await startTracking(user.user_id);
           
-          // BackgroundService отключен для избежания дублирования отправок
-          console.log('BackgroundService disabled to prevent duplicate location sending');
+          // Инициализируем backgroundService только для фото
+          console.log('Initializing backgroundService for photos only...');
+          const phoneImei = await deviceUtils.getDeviceId();
+          await backgroundService.initialize(user.user_id, 1, phoneImei, __DEV__);
+          console.log('BackgroundService initialization completed (photos only)');
         } catch (locationError) {
-          console.error('Location initialization failed:', locationError);
+          console.error('BG Geolocation initialization failed:', locationError);
         }
       }
     } catch (error) {
@@ -63,23 +120,30 @@ export default function App() {
   const handleLoginSuccess = async (userData) => {
     setCurrentScreen('main');
     
-    // Инициализируем геолокацию для нового пользователя
-    console.log('Initializing location tracking for new user...');
+    // Инициализируем BG Geolocation для нового пользователя
+    console.log('Initializing BG Geolocation for new user...');
     try {
-      // Сначала сбрасываем состояние
-      console.log('Calling resetLocationInit for new user...');
-      await resetLocationInit();
-      console.log('resetLocationInit completed for new user');
+      // Инициализируем новый единый модуль BG Geo
+      console.log('Calling initBgGeo for new user...');
+      const geoConfig = getGeoConfig();
+      await initBgGeo({
+        debug: __DEV__,
+        distanceFilter: geoConfig.DISTANCE_FILTER,
+        heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
+        stopTimeout: geoConfig.STOP_TIMEOUT,
+      });
+      console.log('BG Geolocation initialization completed for new user');
       
-      // Затем инициализируем
-      console.log('Calling initLocation for new user...');
-      await initLocation();
-      console.log('Location initialization completed for new user');
+      // Стартуем трекинг с userId
+      await startTracking(userData.user_id);
       
-      // BackgroundService отключен для избежания дублирования отправок
-      console.log('BackgroundService disabled to prevent duplicate location sending');
+      // Инициализируем backgroundService только для фото
+      console.log('Initializing backgroundService for photos only...');
+      const phoneImei = await deviceUtils.getDeviceId();
+      await backgroundService.initialize(userData.user_id, 1, phoneImei, __DEV__);
+      console.log('BackgroundService initialization completed (photos only)');
     } catch (locationError) {
-      console.error('Location initialization failed:', locationError);
+      console.error('BG Geolocation initialization failed:', locationError);
     }
   };
 
