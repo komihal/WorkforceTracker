@@ -171,7 +171,12 @@ export async function initLocation() {
     console.log('Failed to read license from .env:', error.message);
   }
   
-  // Хардкод лицензии удален - используйте .env файл
+  // Fallback: хардкод лицензии для production
+  if (!license) {
+    license = '7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf';
+    console.log('Using hardcoded license for production');
+  }
+  
   // Санитизация ключа (часто лишние пробелы/кавычки из .env)
   if (typeof license === 'string') {
     license = license.trim();
