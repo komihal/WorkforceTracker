@@ -89,13 +89,7 @@ export default function App() {
         try {
           // Инициализируем новый единый модуль BG Geo
           console.log('Calling initBgGeo...');
-          const geoConfig = getGeoConfig();
-          await initBgGeo({
-            debug: __DEV__,
-            distanceFilter: geoConfig.DISTANCE_FILTER,
-            heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
-            stopTimeout: geoConfig.STOP_TIMEOUT,
-          });
+          await initBgGeo();
           console.log('BG Geolocation initialization completed');
           
           // Стартуем трекинг с userId
@@ -125,13 +119,7 @@ export default function App() {
     try {
       // Инициализируем новый единый модуль BG Geo
       console.log('Calling initBgGeo for new user...');
-      const geoConfig = getGeoConfig();
-      await initBgGeo({
-        debug: __DEV__,
-        distanceFilter: geoConfig.DISTANCE_FILTER,
-        heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
-        stopTimeout: geoConfig.STOP_TIMEOUT,
-      });
+      await initBgGeo();
       console.log('BG Geolocation initialization completed for new user');
       
       // Стартуем трекинг с userId

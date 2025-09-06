@@ -58,6 +58,7 @@ try {
   BGGeo = null;
 }
 import { getGeoConfig } from './config/geoConfig';
+import geoEndpointConfig from './config/geoEndpointConfig';
 
 // Функция checkActiveShift удалена - теперь через встроенный uploader BG
 
@@ -297,8 +298,19 @@ export async function initLocation() {
     const geoConfig = getGeoConfig();
     console.log('Geo config received:', geoConfig);
     
+    // Получаем текущий режим отправки
+    const currentEndpointMode = await geoEndpointConfig.getCurrentMode();
+    const isWebhookMode = currentEndpointMode === 'webhook';
+    
+    // Выбираем URL в зависимости от режима
+    const endpointUrl = isWebhookMode 
+      ? 'https://api.tabelshik.com/webhook/' 
+      : 'https://api.tabelshik.com/api/db_save/';
+    
     console.log('Initializing BackgroundGeolocation with config:', {
       mode: __DEV__ ? 'TEST' : 'PRODUCTION',
+      endpointMode: currentEndpointMode,
+      endpointUrl: endpointUrl,
       distanceFilter: geoConfig.DISTANCE_FILTER,
       heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
       stopTimeout: geoConfig.STOP_TIMEOUT,
@@ -327,7 +339,7 @@ export async function initLocation() {
       // Включаем встроенный uploader с правильной конфигурацией
       autoSync: true,
       batchSync: true,
-      url: 'https://api.tabelshik.com/api/db_save/',
+      url: endpointUrl,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -339,13 +351,13 @@ export async function initLocation() {
       locationTemplate:
         '{"lat":<%= latitude %>,' +
         '"lon":<%= longitude %>,' +
-        '"utm":"<%= Math.floor(timestamp/1000) %>",' +
-        '"alt":<%= altitude || 0 %>,' +
-        '"altmsl":<%= (altitude||0)+5 %>,' +
-        '"hasalt":<%= !!altitude %>,' +
-        '"hasaltmsl":<%= !!altitude %>,' +
-        '"hasaltmslaccuracy":<%= (accuracy && accuracy < 5) ? true : false %>,' +
-        '"mslaccuracyMeters":<%= accuracy || 0 %>}',
+        '"utm":"<%= timestamp %>",' +
+        '"alt":<%= altitude %>,' +
+        '"altmsl":<%= altitude %>,' +
+        '"hasalt":true,' +
+        '"hasaltmsl":true,' +
+        '"hasaltmslaccuracy":true,' +
+        '"mslaccuracyMeters":<%= accuracy %>}',
       
       params: {
         api_token: 'wqHJerK834',
@@ -442,6 +454,36 @@ export async function stopTracking() {
     try { 
       await BGGeo.changePace(false); 
     } catch {}
+  }
+}
+
+// Функция для обновления URL endpoint при смене режима
+export async function updateEndpointUrl() {
+  if (!BGGeo) {
+    console.warn('BGGeo not initialized');
+    return;
+  }
+  
+  try {
+    // Получаем текущий режим отправки
+    const currentEndpointMode = await geoEndpointConfig.getCurrentMode();
+    const isWebhookMode = currentEndpointMode === 'webhook';
+    
+    // Выбираем URL в зависимости от режима
+    const endpointUrl = isWebhookMode 
+      ? 'https://api.tabelshik.com/webhook/' 
+      : 'https://api.tabelshik.com/api/db_save/';
+    
+    console.log(`Updating BGGeo endpoint URL to: ${endpointUrl} (mode: ${currentEndpointMode})`);
+    
+    // Обновляем конфигурацию BGGeo
+    await BGGeo.setConfig({
+      url: endpointUrl
+    });
+    
+    console.log('BGGeo endpoint URL updated successfully');
+  } catch (error) {
+    console.error('Error updating BGGeo endpoint URL:', error);
   }
 }
 

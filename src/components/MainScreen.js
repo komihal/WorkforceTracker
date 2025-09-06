@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,17 +8,21 @@ import {
   ActivityIndicator,
   SafeAreaView,
   ScrollView,
+  Platform,
 } from 'react-native';
 import authService from '../services/authService';
 import punchService from '../services/punchService';
 import geoService from '../services/geoService';
+import backgroundService from '../services/backgroundService';
 import cameraService from '../services/cameraService';
 import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
 import { ensureAlwaysLocationPermission } from '../services/permissionsService';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
+import ShiftStatusManager from '../services/shiftStatusService';
 // import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
 import geoEndpointConfig, { ENDPOINT_MODES } from '../config/geoEndpointConfig';
+// DebugBgScreen and BgGeoTestScreen removed - no longer needed
 
 const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -27,6 +31,11 @@ const MainScreen = ({ onLogout }) => {
   const [userStatus, setUserStatus] = useState(WorkerStatus.READY_TO_WORK);
   const [endpointMode, setEndpointMode] = useState(ENDPOINT_MODES.API);
   const [endpointDescription, setEndpointDescription] = useState('API Django (для сохранения)');
+  const [shiftStatusManager, setShiftStatusManager] = useState(null);
+  
+  // Guards для предотвращения повторных вызовов
+  const batteryOptimizationRequested = useRef(false);
+  const locationPermissionsRequested = useRef(false);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -34,7 +43,49 @@ const MainScreen = ({ onLogout }) => {
       if (user) {
         console.log('Loaded currentUser:', user);
         setCurrentUser(user);
-        checkWorkerStatus(user.user_id || 123);
+        
+        // Инициализируем ShiftStatusManager
+        const deviceId = await deviceUtils.getDeviceId();
+        const manager = new ShiftStatusManager(user.user_id || 123, deviceId);
+        
+        // Устанавливаем callback для обновления UI
+        manager.setStatusUpdateCallback(async (data) => {
+          console.log('=== SHIFT STATUS UPDATE ===');
+          console.log('Received data:', data);
+          
+          const hasActiveShift = data.has_active_shift || false;
+          const workerStatus = data.worker_status || 'активен';
+          
+          setIsShiftActive(hasActiveShift);
+          setUserStatus(normalizeStatus(workerStatus));
+          
+          console.log('Updated state:', {
+            isShiftActive: hasActiveShift,
+            userStatus: workerStatus
+          });
+          
+          // Автоматически запускаем/останавливаем отслеживание геолокации
+          try {
+            const { startTracking, stopTracking } = require('../services/bgGeo/location.js');
+            if (hasActiveShift) {
+              // Используем user_id из данных смены, если currentUser еще не загружен
+              const userId = currentUser?.user_id || data.worker?.user_id;
+              if (userId) {
+                await startTracking(userId);
+                console.log('Auto-start tracking based on active shift for user:', userId);
+              } else {
+                console.log('Cannot start tracking: user_id is not available in currentUser or shift data');
+              }
+            } else {
+              await stopTracking();
+              console.log('Auto-stop tracking based on inactive shift');
+            }
+          } catch (e) {
+            console.log('Tracking sync with shift status failed:', e?.message || e);
+          }
+        });
+        
+        setShiftStatusManager(manager);
       }
     };
     
@@ -45,70 +96,49 @@ const MainScreen = ({ onLogout }) => {
       setEndpointDescription(description);
     };
     
+    const requestLocationPermissions = async () => {
+      if (locationPermissionsRequested.current) {
+        console.log('Location permissions already requested, skipping...');
+        return;
+      }
+      
+      try {
+        console.log('Requesting background location permission...');
+        locationPermissionsRequested.current = true;
+        const hasAlways = await ensureAlwaysLocationPermission();
+        if (hasAlways) {
+          console.log('Background location permission granted');
+        } else {
+          console.log('Background location permission denied');
+        }
+      } catch (error) {
+        console.error('Error requesting location permissions:', error);
+        locationPermissionsRequested.current = false; // Reset on error
+      }
+    };
+    
     loadUserData();
     loadEndpointMode();
+    requestLocationPermissions();
+    
+    // Автоматически запрашиваем отключение оптимизации батареи (только один раз)
+    if (!batteryOptimizationRequested.current) {
+      requestBatteryOptimization();
+    }
 
     // Инициализация геолокации отключена - происходит только при входе в приложение
     console.log('Location initialization disabled in MainScreen - handled by App.js on login');
-
-
-  }, []);
-
-  // Проверка статуса работника
-  const checkWorkerStatus = async (userId) => {
-    try {
-      const result = await punchService.getWorkerStatus(userId);
-      if (result.success) {
-        const isWorking = !!result.data.is_working;
-        const rawStatus = result.data.status || result.data.worker_status || result.data.status_text || result.data.worker_status_text || null;
-        
-        // Подробное логирование для отладки
-        console.log('=== STATUS DEBUG ===');
-        console.log('Raw API response:', result.data);
-        console.log('isWorking flag:', isWorking);
-        console.log('Raw status value:', rawStatus);
-        console.log('Status type:', typeof rawStatus);
-        console.log('All possible status fields:', {
-          status: result.data.status,
-          worker_status: result.data.worker_status,
-          status_text: result.data.status_text,
-          worker_status_text: result.data.worker_status_text,
-          is_working: result.data.is_working
-        });
-        
-        // Дополнительная проверка на заблокированный статус
-        let forceBlocked = false;
-        if (result.data.blocked === true || result.data.is_blocked === true || 
-            result.data.access_denied === true || result.data.disabled === true) {
-          forceBlocked = true;
-          console.log('Force blocked detected from boolean flags');
-        }
-        
-        const normalized = forceBlocked ? WorkerStatus.BLOCKED : normalizeStatus(rawStatus, isWorking);
-        console.log('Normalized status:', normalized);
-        console.log('Humanized status:', humanizeStatus(normalized));
-        console.log('=== END STATUS DEBUG ===');
-        
-        setIsShiftActive(isWorking);
-        setUserStatus(normalized);
-        // Автоматически включаем/выключаем трекинг по актуальному статусу
-        try {
-          const { startTracking, stopTracking } = require('../location');
-          if (isWorking) {
-            await startTracking();
-            console.log('Auto-start tracking based on current shift status');
-          } else {
-            await stopTracking();
-            console.log('Auto-stop tracking based on current shift status');
-          }
-        } catch (e) {
-          console.log('Tracking sync with status failed:', e?.message || e);
-        }
+    
+    // Cleanup при размонтировании компонента
+    return () => {
+      if (shiftStatusManager) {
+        shiftStatusManager.disconnect();
       }
-    } catch (error) {
-      console.error('Error checking worker status:', error);
-    }
-  };
+    };
+  }, []); // Убираем shiftStatusManager из зависимостей, чтобы избежать бесконечного цикла
+
+  // Проверка статуса работника и смены
+  // Функция checkWorkerStatus удалена - теперь используется ShiftStatusManager
 
   // Начало смены
   const handlePunchIn = async () => {
@@ -117,37 +147,24 @@ const MainScreen = ({ onLogout }) => {
       return;
     }
 
-    // Сначала проверяем статус рабочего
+    if (!shiftStatusManager) {
+      Alert.alert('Ошибка', 'Сервис статуса смены не инициализирован');
+      return;
+    }
+
+    // Проверяем текущий статус через новый сервис
     try {
-      const statusResult = await punchService.getWorkerStatus(currentUser.user_id || 123);
-      if (!statusResult.success) {
-        Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
+      const currentStatus = await shiftStatusManager.getCurrentStatus();
+      console.log('Current status before punch in:', currentStatus);
+      
+      if (currentStatus.has_active_shift) {
+        Alert.alert('Смена уже активна', 'У вас уже есть активная смена');
         return;
       }
       
-      // Логируем полученные данные для отладки
-      console.log('Worker status response:', statusResult.data);
-      
-      const isWorking = !!statusResult.data.is_working;
-      const rawStatus = statusResult.data.status || statusResult.data.worker_status || statusResult.data.status_text || statusResult.data.worker_status_text || null;
-      
-      console.log('Raw status data:', {
-        isWorking,
-        rawStatus,
-        allData: statusResult.data
-      });
-      
-      // Дополнительная проверка на заблокированный статус
-      let forceBlocked = false;
-      if (statusResult.data.blocked === true || statusResult.data.is_blocked === true || 
-          statusResult.data.access_denied === true || statusResult.data.disabled === true) {
-        forceBlocked = true;
-        console.log('Force blocked detected from boolean flags (punch in)');
-      }
-      
-      const normalized = forceBlocked ? WorkerStatus.BLOCKED : normalizeStatus(rawStatus, isWorking);
-      
-      console.log('Normalized status:', normalized);
+      // Проверяем статус рабочего
+      const workerStatus = currentStatus.worker_status || 'активен';
+      const normalized = normalizeStatus(workerStatus);
       
       if (normalized === WorkerStatus.BLOCKED) {
         Alert.alert('Доступ заблокирован', 'Ваш пользователь заблокирован администратором. Обратитесь к администратору.');
@@ -164,8 +181,8 @@ const MainScreen = ({ onLogout }) => {
         return;
       }
     } catch (error) {
-      console.error('Error checking worker status:', error);
-      Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
+      console.error('Error checking current status:', error);
+      Alert.alert('Ошибка', 'Не удалось проверить текущий статус.');
       return;
     }
 
@@ -236,22 +253,27 @@ const MainScreen = ({ onLogout }) => {
         return;
       }
 
-      const photoNameIn = (photoResult.data?.fileName) || `start_shift_${Date.now()}.jpg`;
-      const result = await punchService.punchIn(
-        currentUser.user_id || 123,
-        phoneImeiIn,
-        photoNameIn
-      );
+      // Используем новый сервис для отправки punch
+      const result = await shiftStatusManager.sendPunch(1); // 1 = начало смены
 
-            if (result.success) {
-        setIsShiftActive(true);
+      if (result.success) {
         Alert.alert('Успех', 'Смена начата!');
         
         // Запускаем отслеживание геолокации при начале смены
         try {
-          const { startTracking } = require('../location');
-          await startTracking();
-          console.log('Location tracking started on punch in');
+          const { startTracking } = require('../services/bgGeo/location.js');
+          if (currentUser?.user_id) {
+            await startTracking(currentUser.user_id);
+            console.log('Location tracking started on punch in for user:', currentUser.user_id);
+          } else {
+            console.log('Cannot start tracking on punch in: currentUser.user_id is not available');
+          }
+          
+          // Инициализируем backgroundService для фоновой отправки
+          console.log('Initializing backgroundService for punch in...');
+          const phoneImei = await deviceUtils.getDeviceId();
+          await backgroundService.initialize(currentUser.user_id, 1, phoneImei, __DEV__);
+          console.log('BackgroundService initialized for punch in');
         } catch (e) {
           console.error('Failed to start tracking on punch in:', e?.message || e);
         }
@@ -272,50 +294,23 @@ const MainScreen = ({ onLogout }) => {
       return;
     }
 
-    // Сначала проверяем статус рабочего
+    if (!shiftStatusManager) {
+      Alert.alert('Ошибка', 'Сервис статуса смены не инициализирован');
+      return;
+    }
+
+    // Проверяем текущий статус через новый сервис
     try {
-      const statusResult = await punchService.getWorkerStatus(currentUser.user_id || 123);
-      if (!statusResult.success) {
-        Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
-        return;
-      }
+      const currentStatus = await shiftStatusManager.getCurrentStatus();
+      console.log('Current status before punch out:', currentStatus);
       
-      // Логируем полученные данные для отладки
-      console.log('Worker status response (punch out):', statusResult.data);
-      
-      const isWorking = !!statusResult.data.is_working;
-      const rawStatus = statusResult.data.status || statusResult.data.worker_status || statusResult.data.status_text || statusResult.data.worker_status_text || null;
-      
-      console.log('Raw status data (punch out):', {
-        isWorking,
-        rawStatus,
-        allData: statusResult.data
-      });
-      
-      // Дополнительная проверка на заблокированный статус
-      let forceBlocked = false;
-      if (statusResult.data.blocked === true || statusResult.data.is_blocked === true || 
-          statusResult.data.access_denied === true || statusResult.data.disabled === true) {
-        forceBlocked = true;
-        console.log('Force blocked detected from boolean flags (punch out)');
-      }
-      
-      const normalized = forceBlocked ? WorkerStatus.BLOCKED : normalizeStatus(rawStatus, isWorking);
-      
-      console.log('Normalized status (punch out):', normalized);
-      
-      if (normalized === WorkerStatus.BLOCKED) {
-        Alert.alert('Доступ заблокирован', 'Ваш пользователь заблокирован администратором. Обратитесь к администратору.');
-        return;
-      }
-      
-      if (normalized === WorkerStatus.FIRED) {
-        Alert.alert('Доступ запрещен', 'Ваш пользователь уволен.');
+      if (!currentStatus.has_active_shift) {
+        Alert.alert('Нет активной смены', 'У вас нет активной смены для завершения');
         return;
       }
     } catch (error) {
-      console.error('Error checking worker status:', error);
-      Alert.alert('Ошибка', 'Не удалось проверить статус рабочего.');
+      console.error('Error checking current status:', error);
+      Alert.alert('Ошибка', 'Не удалось проверить текущий статус.');
       return;
     }
 
@@ -386,20 +381,15 @@ const MainScreen = ({ onLogout }) => {
         return;
       }
 
-      const photoNameOut = (photoResult.data?.fileName) || `end_shift_${Date.now()}.jpg`;
-      const result = await punchService.punchOut(
-        currentUser.user_id || 123,
-        phoneImeiOut,
-        photoNameOut
-      );
+      // Используем новый сервис для отправки punch
+      const result = await shiftStatusManager.sendPunch(0); // 0 = завершение смены
 
       if (result.success) {
-        setIsShiftActive(false);
         Alert.alert('Успех', 'Смена завершена!');
         
         // Останавливаем отслеживание геолокации при завершении смены
         try {
-          const { stopTracking } = require('../location');
+          const { stopTracking } = require('../services/bgGeo/location.js');
           await stopTracking();
           console.log('Location tracking stopped on punch out');
         } catch (e) {
@@ -425,6 +415,15 @@ const MainScreen = ({ onLogout }) => {
       setEndpointMode(newMode);
       setEndpointDescription(description);
       
+      // Обновляем URL в BGGeo
+      try {
+        const { updateEndpointUrl } = require('../location');
+        await updateEndpointUrl();
+        console.log('BGGeo endpoint URL updated after mode change');
+      } catch (error) {
+        console.error('Error updating BGGeo endpoint URL:', error);
+      }
+      
       Alert.alert(
         'Режим изменен',
         `Геолокация теперь отправляется на: ${description}`,
@@ -441,7 +440,7 @@ const MainScreen = ({ onLogout }) => {
       const result = await geoService.saveGeoData(
         currentUser.user_id || 123,
         1, // place_id
-        '123456789012345' // IMEI
+        await deviceUtils.getDeviceId() // Реальный IMEI
       );
 
       if (result.success) {
@@ -458,11 +457,106 @@ const MainScreen = ({ onLogout }) => {
 
 
 
+  // Функция для запроса игнорирования оптимизации батареи (с guard)
+  const requestBatteryOptimization = useCallback(async () => {
+    if (batteryOptimizationRequested.current) {
+      console.log('[Battery] Already requested, skipping...');
+      return;
+    }
+    
+    batteryOptimizationRequested.current = true;
+    try {
+      const { ensureBatteryWhitelistUI } = require('../services/bgGeo/location.js');
+      await ensureBatteryWhitelistUI();
+    } catch (error) {
+      console.error('Error requesting battery optimization:', error);
+      Alert.alert('Ошибка', 'Не удалось открыть настройки оптимизации батареи');
+    }
+  }, []);
+
+  // Тестирование геолокации
+  const handleTestLocation = async () => {
+    try {
+      console.log('Testing location...');
+      const geoService = require('../services/geoService').default;
+      const location = await geoService.getCurrentLocation();
+      
+      Alert.alert('Геолокация', 
+        `Lat: ${location.latitude}\nLon: ${location.longitude}\nAccuracy: ${location.accuracy}m`
+      );
+    } catch (error) {
+      console.error('Location test error:', error);
+      Alert.alert('Ошибка геолокации', error.message);
+    }
+  };
+
   // Выход из системы
   const handleLogout = async () => {
+    console.log('=== HANDLE LOGOUT CALLED ===');
+    console.log('isShiftActive:', isShiftActive);
+    console.log('currentUser:', currentUser);
+    
     try {
-      await authService.logout();
-      onLogout();
+      // Проверяем, активна ли смена
+      if (isShiftActive) {
+        console.log('Showing shift interruption alert...');
+        Alert.alert(
+          'Прерывание смены',
+          'У вас активна смена. Вы уверены, что хотите прервать смену и выйти из системы?',
+          [
+            {
+              text: 'Отмена',
+              style: 'cancel',
+            },
+            {
+              text: 'Прервать смену и выйти',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  console.log('User confirmed shift interruption and logout');
+                  
+                  // Автоматически закрываем смену без фото
+                  if (currentUser && currentUser.user_id) {
+                    console.log('Auto-closing shift before logout...');
+                    
+                    // Останавливаем отслеживание геолокации
+                    try {
+                      const { stopTracking } = require('../services/bgGeo/location.js');
+                      await stopTracking();
+                      console.log('Location tracking stopped before logout');
+                    } catch (e) {
+                      console.error('Failed to stop tracking before logout:', e?.message || e);
+                    }
+                    
+                    // Автоматически закрываем смену
+                    const phoneImei = await deviceUtils.getDeviceId();
+                    const autoPunchResult = await punchService.autoPunchOut(currentUser.user_id, phoneImei);
+                    
+                    if (autoPunchResult.success) {
+                      console.log('Shift auto-closed successfully before logout');
+                      Alert.alert('Смена прервана', 'Смена была автоматически закрыта');
+                    } else {
+                      console.error('Failed to auto-close shift before logout:', autoPunchResult.error);
+                      Alert.alert('Предупреждение', 'Не удалось закрыть смену автоматически. Обратитесь к администратору.');
+                    }
+                  }
+                  
+                  // Выходим из системы
+                  await authService.logout();
+                  onLogout();
+                } catch (error) {
+                  console.error('Error during logout with shift closure:', error);
+                  Alert.alert('Ошибка', 'Не удалось выйти из системы');
+                }
+              },
+            },
+          ]
+        );
+      } else {
+        // Если смена не активна, просто выходим
+        await authService.logout();
+        onLogout();
+      }
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось выйти из системы');
     }
@@ -473,6 +567,7 @@ const MainScreen = ({ onLogout }) => {
         .filter(Boolean)
         .join(' ')
     : '';
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -530,10 +625,7 @@ const MainScreen = ({ onLogout }) => {
                         const res = await punchService.requestUnblock(currentUser.user_id || 123);
                         if (res.success) {
                           Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                          // Обновляем статус пользователя после успешной отправки
-                          setTimeout(() => {
-                            checkWorkerStatus(currentUser.user_id || 123);
-                          }, 1000);
+                          // Статус пользователя обновится автоматически через ShiftStatusManager
                         } else {
                           Alert.alert(
                             'Ошибка отправки запроса', 
@@ -549,9 +641,7 @@ const MainScreen = ({ onLogout }) => {
                                         const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
                                         if (retryRes.success) {
                                           Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                                          setTimeout(() => {
-                                            checkWorkerStatus(currentUser.user_id || 123);
-                                          }, 1000);
+                                          // Статус пользователя обновится автоматически через ShiftStatusManager
                                         } else {
                                           Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
                                         }
@@ -585,9 +675,7 @@ const MainScreen = ({ onLogout }) => {
                                       const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
                                       if (retryRes.success) {
                                         Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                                        setTimeout(() => {
-                                          checkWorkerStatus(currentUser.user_id || 123);
-                                        }, 1000);
+                                        // Статус пользователя обновится автоматически через ShiftStatusManager
                                       } else {
                                         Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
                                       }
@@ -657,8 +745,12 @@ const MainScreen = ({ onLogout }) => {
 
 
         <View style={styles.bottomButtons}>
-          {/* dev/test buttons removed */}
-          
+          <TouchableOpacity
+            style={[styles.button, styles.testButton]}
+            onPress={handleTestLocation}
+          >
+            <Text style={styles.buttonText}>🧪 Тест геолокации</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.button, styles.logoutButton]}
             onPress={handleLogout}
@@ -741,6 +833,9 @@ const styles = StyleSheet.create({
   },
   logoutButton: {
     backgroundColor: '#9E9E9E',
+  },
+  testButton: {
+    backgroundColor: '#2196F3',
   },
 
   buttonDisabled: {
