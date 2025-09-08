@@ -1,5 +1,6 @@
-import { Platform, Alert } from 'react-native';
+import { Platform, Alert, AppState } from 'react-native';
 import { check, request, RESULTS, PERMISSIONS, openSettings } from 'react-native-permissions';
+import { ensureBatteryOptimizationDisabled } from '../utils/batteryOptimization';
 
 async function ensureIOSAlways() {
   try {
@@ -43,10 +44,13 @@ async function ensureIOSAlways() {
   }
 }
 
+let bgRequestShownThisSession = false;
+
 async function ensureAndroidAlways() {
   try {
     console.log('===== ANDROID PERMISSIONS START =====');
-    // Сначала проверяем When-in-use и запрашиваем только при отсутствии
+    
+    // Сначала проверяем все разрешения без запроса
     const fineStatus = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
     console.log('ACCESS_FINE_LOCATION status:', fineStatus);
     
@@ -88,6 +92,21 @@ async function ensureAndroidAlways() {
       return true;
     }
 
+    // Если разрешения уже есть, не показываем диалог
+    if (fineStatus === RESULTS.GRANTED && bgStatus === RESULTS.GRANTED) {
+      console.log('All location permissions already granted');
+      return true;
+    }
+
+    // Разрешение на фон: только в foreground и не чаще 1 раза за сессию
+    if (AppState.currentState !== 'active') {
+      console.log('AppState not active; skipping ACCESS_BACKGROUND_LOCATION request');
+      return false;
+    }
+    if (bgRequestShownThisSession) {
+      console.log('ACCESS_BACKGROUND_LOCATION request already shown this session; skipping');
+      return false;
+    }
     console.log('Requesting ACCESS_BACKGROUND_LOCATION permission...');
     const reqBg = await request(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
     console.log('ACCESS_BACKGROUND_LOCATION request result:', reqBg);
@@ -97,7 +116,8 @@ async function ensureAndroidAlways() {
       return true;
     }
 
-    console.log('ACCESS_BACKGROUND_LOCATION permission denied, showing alert...');
+    console.log('ACCESS_BACKGROUND_LOCATION permission denied or blocked, showing settings prompt...');
+    bgRequestShownThisSession = true;
     Alert.alert(
       'Фоновая геолокация',
       'Для корректной работы приложения необходимо разрешение на фоновую геолокацию. Это позволит приложению отслеживать ваше местоположение даже когда оно закрыто, что важно для точного учета рабочего времени.',
@@ -170,6 +190,65 @@ export async function requestAllPermissions() {
   
   console.log('===== ALL PERMISSIONS REQUESTED SUCCESSFULLY =====');
   return true;
+}
+
+// ANDROID 13+ уведомления
+export async function ensureNotificationsPermission() {
+  try {
+    if (Platform.OS !== 'android' || Platform.Version < 33) return true;
+    const status = await check(PERMISSIONS.ANDROID.POST_NOTIFICATIONS);
+    if (status === RESULTS.GRANTED) return true;
+    const req = await request(PERMISSIONS.ANDROID.POST_NOTIFICATIONS);
+    return req === RESULTS.GRANTED;
+  } catch (e) {
+    console.log('ensureNotificationsPermission error:', e?.message || e);
+    return false;
+  }
+}
+
+let sequentialFlowShownThisSession = false;
+export async function runSequentialPermissionFlow() {
+  try {
+    if (sequentialFlowShownThisSession) {
+      console.log('[PERM FLOW] Already run this session, skipping.');
+      return;
+    }
+    if (AppState.currentState !== 'active') {
+      console.log('[PERM FLOW] AppState not active, skipping.');
+      return;
+    }
+    sequentialFlowShownThisSession = true;
+
+    // 1) Геолокация (Always)
+    const locOk = await ensureAlwaysLocationPermission();
+    if (!locOk) {
+      Alert.alert(
+        'Геолокация',
+        'Включите «Разрешать всегда» для стабильной работы в фоне.',
+        [{ text: 'Открыть настройки', onPress: () => openSettings() }, { text: 'Позже', style: 'cancel' }]
+      );
+    }
+
+    // 2) Уведомления (Android 13+)
+    const notifOk = await ensureNotificationsPermission();
+    if (!notifOk) {
+      Alert.alert(
+        'Уведомления',
+        'Разрешите уведомления, чтобы видеть статус трекинга.',
+        [{ text: 'Открыть настройки', onPress: () => openSettings() }, { text: 'Позже', style: 'cancel' }]
+      );
+    }
+
+    // 3) Оптимизация батареи
+    try {
+      await ensureBatteryOptimizationDisabled({ silent: false });
+    } catch {}
+
+    // 4) Мониторинг физ. активности (опционально)
+    await requestActivityRecognitionPermission();
+  } catch (e) {
+    console.log('runSequentialPermissionFlow error:', e?.message || e);
+  }
 }
 
 

@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Config from 'react-native-config';
 
 class DeviceUtils {
   constructor() {
@@ -21,7 +22,7 @@ class DeviceUtils {
         brand: 'Test Device',
         model: 'Test Model',
         systemVersion: 'Test Version',
-        uniqueId: '123456789012345', // IMEI или другой уникальный идентификатор
+        uniqueId: Config.DEVICE_IMEI || 'unknown-device', // IMEI из .env или fallback
         deviceName: 'Test Device Name',
         userAgent: 'React Native Workforce Tracker',
       };
@@ -33,7 +34,7 @@ class DeviceUtils {
       return {
         platform: Platform.OS,
         version: Platform.Version,
-        uniqueId: '123456789012345',
+        uniqueId: Config.DEVICE_IMEI || 'unknown-device',
       };
     }
   }
@@ -45,7 +46,7 @@ class DeviceUtils {
       return deviceInfo.uniqueId;
     } catch (error) {
       console.error('Error getting device ID:', error);
-      return '123456789012345'; // Fallback ID
+      return Config.DEVICE_IMEI || 'unknown-device'; // Fallback ID из .env
     }
   }
 

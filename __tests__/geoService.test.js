@@ -29,13 +29,13 @@ describe('GeoService', () => {
       expect(geoPoint).toEqual({
         lat: 55.7558,
         lon: 37.6176,
-        utm: expect.any(Number),
+        utm: expect.any(String),
         alt: 150,
         altmsl: 160,
         hasalt: true,
         hasaltmsl: true,
-        hasaltmslaccucacy: true,
-        mslaccucacyMeters: 5,
+        hasaltmslaccuracy: true,
+        mslaccuracyMeters: 5,
       });
 
       expect(GeoService.getGeoDataCount()).toBe(1);
@@ -47,13 +47,13 @@ describe('GeoService', () => {
       expect(geoPoint).toEqual({
         lat: 55.7558,
         lon: 37.6176,
-        utm: expect.any(Number),
+        utm: expect.any(String),
         alt: 0,
         altmsl: 0,
         hasalt: false,
         hasaltmsl: false,
-        hasaltmslaccucacy: false,
-        mslaccucacyMeters: 0,
+        hasaltmslaccuracy: false,
+        mslaccuracyMeters: 0,
       });
     });
 
@@ -62,8 +62,9 @@ describe('GeoService', () => {
       const geoPoint = GeoService.addGeoPoint(55.7558, 37.6176);
       const after = Math.floor(Date.now() / 1000);
 
-      expect(geoPoint.utm).toBeGreaterThanOrEqual(before);
-      expect(geoPoint.utm).toBeLessThanOrEqual(after);
+      const utmNumber = parseInt(geoPoint.utm);
+      expect(utmNumber).toBeGreaterThanOrEqual(before);
+      expect(utmNumber).toBeLessThanOrEqual(after);
     });
   });
 
@@ -136,10 +137,11 @@ describe('GeoService', () => {
       });
 
       expect(BackgroundGeolocation.getCurrentPosition).toHaveBeenCalledWith({
-        timeout: 15,
-        samples: 1,
+        timeout: 30,
+        samples: 3,
         persist: false,
         desiredAccuracy: 0, // DESIRED_ACCURACY_HIGH
+        maximumAge: 5000,
       });
     });
 
@@ -188,8 +190,8 @@ describe('GeoService', () => {
         altmsl: 160,
         hasalt: true,
         hasaltmsl: true,
-        hasaltmslaccucacy: true,
-        mslaccucacyMeters: 5,
+        hasaltmslaccuracy: true,
+        mslaccuracyMeters: 5,
       }));
 
       // Clear data

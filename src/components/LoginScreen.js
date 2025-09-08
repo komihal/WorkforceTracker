@@ -152,6 +152,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
+    paddingTop: 60,
   },
   title: {
     fontSize: 28,
@@ -164,10 +165,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     textAlign: 'center',
     color: '#666',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   form: {
-    marginBottom: 30,
+    marginBottom: 20,
   },
   input: {
     backgroundColor: '#fff',

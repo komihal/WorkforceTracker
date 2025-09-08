@@ -9,6 +9,8 @@ import {
   SafeAreaView,
   ScrollView,
   Platform,
+  AppState,
+  Button,
 } from 'react-native';
 import authService from '../services/authService';
 import punchService from '../services/punchService';
@@ -17,20 +19,23 @@ import backgroundService from '../services/backgroundService';
 import cameraService from '../services/cameraService';
 import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
-import { ensureAlwaysLocationPermission } from '../services/permissionsService';
+import { ensureAlwaysLocationPermission, runSequentialPermissionFlow } from '../services/permissionsService';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
 import ShiftStatusManager from '../services/shiftStatusService';
 // import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
 import geoEndpointConfig, { ENDPOINT_MODES } from '../config/geoEndpointConfig';
+import transistorsoftTestConfig from '../config/transistorsoftTestConfig';
 // DebugBgScreen and BgGeoTestScreen removed - no longer needed
 
 const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [showAlwaysBanner, setShowAlwaysBanner] = useState(false);
   const [isShiftActive, setIsShiftActive] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [userStatus, setUserStatus] = useState(WorkerStatus.READY_TO_WORK);
   const [endpointMode, setEndpointMode] = useState(ENDPOINT_MODES.API);
   const [endpointDescription, setEndpointDescription] = useState('API Django (для сохранения)');
+  const [transistorsoftTestEnabled, setTransistorsoftTestEnabled] = useState(false);
   const [shiftStatusManager, setShiftStatusManager] = useState(null);
   
   // Guards для предотвращения повторных вызовов
@@ -66,12 +71,12 @@ const MainScreen = ({ onLogout }) => {
           
           // Автоматически запускаем/останавливаем отслеживание геолокации
           try {
-            const { startTracking, stopTracking } = require('../services/bgGeo/location.js');
+            const { ensureTracking, stopTracking } = require('../location.js');
             if (hasActiveShift) {
               // Используем user_id из данных смены, если currentUser еще не загружен
               const userId = currentUser?.user_id || data.worker?.user_id;
               if (userId) {
-                await startTracking(userId);
+                await ensureTracking(userId);
                 console.log('Auto-start tracking based on active shift for user:', userId);
               } else {
                 console.log('Cannot start tracking: user_id is not available in currentUser or shift data');
@@ -94,6 +99,11 @@ const MainScreen = ({ onLogout }) => {
       const description = await geoEndpointConfig.getModeDescription();
       setEndpointMode(mode);
       setEndpointDescription(description);
+    };
+    
+    const loadTransistorsoftTestState = async () => {
+      const enabled = await transistorsoftTestConfig.isEnabled();
+      setTransistorsoftTestEnabled(enabled);
     };
     
     const requestLocationPermissions = async () => {
@@ -119,7 +129,10 @@ const MainScreen = ({ onLogout }) => {
     
     loadUserData();
     loadEndpointMode();
+    loadTransistorsoftTestState();
     requestLocationPermissions();
+    // Запускаем последовательный flow при первом входе в экран (foreground-only)
+    setTimeout(() => { runSequentialPermissionFlow(); }, 600);
     
     // Автоматически запрашиваем отключение оптимизации батареи (только один раз)
     if (!batteryOptimizationRequested.current) {
@@ -129,11 +142,23 @@ const MainScreen = ({ onLogout }) => {
     // Инициализация геолокации отключена - происходит только при входе в приложение
     console.log('Location initialization disabled in MainScreen - handled by App.js on login');
     
+    // Отслеживаем AppState для баннера Always
+    const sub = AppState.addEventListener('change', async (state) => {
+      if (state === 'active' && Platform.OS === 'android') {
+        try {
+          const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
+          const bg = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+          setShowAlwaysBanner(bg !== RESULTS.GRANTED);
+        } catch {}
+      }
+    });
+
     // Cleanup при размонтировании компонента
     return () => {
       if (shiftStatusManager) {
         shiftStatusManager.disconnect();
       }
+      sub.remove();
     };
   }, []); // Убираем shiftStatusManager из зависимостей, чтобы избежать бесконечного цикла
 
@@ -226,7 +251,7 @@ const MainScreen = ({ onLogout }) => {
         location.latitude,    // lat
         location.longitude,   // lon
         location.altitude || 0,  // alt
-        (location.altitude || 0) + 5,  // altMsl (altitude + 5)
+        (typeof location.altitude_msl === 'number' ? location.altitude_msl : (location.altitude || 0)),  // altMsl
         true,                 // hasAlt
         true,                 // hasAltMsl
         false,                // hasAltMslAccuracy
@@ -261,9 +286,9 @@ const MainScreen = ({ onLogout }) => {
         
         // Запускаем отслеживание геолокации при начале смены
         try {
-          const { startTracking } = require('../services/bgGeo/location.js');
+          const { ensureTracking } = require('../location.js');
           if (currentUser?.user_id) {
-            await startTracking(currentUser.user_id);
+            await ensureTracking(currentUser.user_id);
             console.log('Location tracking started on punch in for user:', currentUser.user_id);
           } else {
             console.log('Cannot start tracking on punch in: currentUser.user_id is not available');
@@ -354,7 +379,7 @@ const MainScreen = ({ onLogout }) => {
         location.latitude,    // lat
         location.longitude,   // lon
         location.altitude || 0,  // alt
-        (location.altitude || 0) + 5,  // altMsl (altitude + 5)
+        (typeof location.altitude_msl === 'number' ? location.altitude_msl : (location.altitude || 0)),  // altMsl
         true,                 // hasAlt
         true,                 // hasAltMsl
         false,                // hasAltMslAccuracy
@@ -389,7 +414,7 @@ const MainScreen = ({ onLogout }) => {
         
         // Останавливаем отслеживание геолокации при завершении смены
         try {
-          const { stopTracking } = require('../services/bgGeo/location.js');
+          const { stopTracking } = require('../location.js');
           await stopTracking();
           console.log('Location tracking stopped on punch out');
         } catch (e) {
@@ -434,6 +459,28 @@ const MainScreen = ({ onLogout }) => {
     }
   };
 
+  // Переключение Transistorsoft test mode
+  const handleToggleTransistorsoftTest = async () => {
+    const newState = !transistorsoftTestEnabled;
+    await transistorsoftTestConfig.setEnabled(newState);
+    setTransistorsoftTestEnabled(newState);
+    
+    // Обновляем конфигурацию BGGeo
+    try {
+      const { updateEndpointUrl } = require('../location');
+      await updateEndpointUrl();
+      console.log('BGGeo configuration updated for Transistorsoft test mode');
+    } catch (error) {
+      console.error('Error updating BGGeo configuration:', error);
+    }
+    
+    Alert.alert(
+      'Режим тестирования',
+      `Transistorsoft tracker: ${newState ? 'включен' : 'выключен'}`,
+      [{ text: 'OK' }]
+    );
+  };
+
   // Сохранение геоданных
   const saveGeoData = async () => {
     try {
@@ -466,7 +513,7 @@ const MainScreen = ({ onLogout }) => {
     
     batteryOptimizationRequested.current = true;
     try {
-      const { ensureBatteryWhitelistUI } = require('../services/bgGeo/location.js');
+      const { ensureBatteryWhitelistUI } = require('../location.js');
       await ensureBatteryWhitelistUI();
     } catch (error) {
       console.error('Error requesting battery optimization:', error);
@@ -521,7 +568,7 @@ const MainScreen = ({ onLogout }) => {
                     
                     // Останавливаем отслеживание геолокации
                     try {
-                      const { stopTracking } = require('../services/bgGeo/location.js');
+                      const { stopTracking } = require('../location.js');
                       await stopTracking();
                       console.log('Location tracking stopped before logout');
                     } catch (e) {
@@ -572,6 +619,13 @@ const MainScreen = ({ onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
+        {showAlwaysBanner && Platform.OS === 'android' && (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>Включите «Разрешать всегда» для стабильного трекинга</Text>
+            <Button title="Открыть настройки" onPress={ensureAlwaysLocationPermission} />
+          </View>
+        )}
+
         <View style={styles.header}>
           <Text style={styles.title}>Смена</Text>
           <Text style={styles.subtitle}>
@@ -740,6 +794,24 @@ const MainScreen = ({ onLogout }) => {
           </Text>
         </View>
 
+        {/* Переключатель Transistorsoft test mode */}
+        <View style={styles.endpointToggleSection}>
+          <Text style={styles.sectionTitle}>Тестирование</Text>
+          <TouchableOpacity
+            style={[styles.button, transistorsoftTestEnabled ? styles.testButtonActive : styles.testButton]}
+            onPress={handleToggleTransistorsoftTest}
+          >
+            <Text style={styles.buttonText}>
+              🧪 Transistorsoft Test: {transistorsoftTestEnabled ? 'Включен' : 'Выключен'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.endpointDescription}>
+            {transistorsoftTestEnabled 
+              ? 'Данные отправляются на tracker.transistorsoft.com для тестирования' 
+              : 'Используется обычная конфигурация'}
+          </Text>
+        </View>
+
 
 
 
@@ -873,6 +945,27 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  banner: {
+    backgroundColor: '#FFF7E6',
+    borderColor: '#FFC107',
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  bannerText: {
+    color: '#7A5D00',
+    marginBottom: 8,
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  testButton: {
+    backgroundColor: '#FF9800',
+  },
+  testButtonActive: {
+    backgroundColor: '#4CAF50',
   },
 
 });

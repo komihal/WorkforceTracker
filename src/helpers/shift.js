@@ -8,6 +8,8 @@ export const WorkerStatus = {
 };
 
 export const canStartShift = (status) => {
+  // Разрешаем начинать смену только если статус НЕ заблокирован и НЕ уволен
+  // NOT_WORKING означает, что работник может начать смену
   return !(status === WorkerStatus.BLOCKED || status === WorkerStatus.FIRED);
 };
 

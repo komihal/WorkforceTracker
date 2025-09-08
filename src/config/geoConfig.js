@@ -3,10 +3,10 @@ export const GEO_CONFIG = {
   // Тестовый режим (__DEV__ = true) - более агрессивные настройки для тестирования
   TEST_MODE: {
     // Дистанционный фильтр для BackgroundGeolocation (метры)
-    DISTANCE_FILTER: 10, // 10 метров для тестирования
+    DISTANCE_FILTER: 3, // 5 метров для точного контроля на стройке
     
     // Heartbeat интервал для BackgroundGeolocation (секунды)
-    HEARTBEAT_INTERVAL: 30, // 30 секунд для тестирования
+    HEARTBEAT_INTERVAL: 300, // 300 секунд (5 минут) для периодической отправки
     
     // Таймаут остановки (секунды)
     STOP_TIMEOUT: 1, // 1 секунда для быстрого тестирования
@@ -18,10 +18,10 @@ export const GEO_CONFIG = {
   // Обычный режим (продакшн) - более консервативные настройки для экономии батареи
   PRODUCTION_MODE: {
     // Дистанционный фильтр для BackgroundGeolocation (метры)
-    DISTANCE_FILTER: 0, // 0 метров для максимальной точности отслеживания
+    DISTANCE_FILTER: 5, // 5 метров для точного контроля на стройке
     
     // Heartbeat интервал для BackgroundGeolocation (секунды)
-    HEARTBEAT_INTERVAL: 60, // 60 секунд для экономии батареи
+    HEARTBEAT_INTERVAL: 300, // 300 секунд (5 минут) для периодической отправки
     
     // Таймаут остановки (секунды)
     STOP_TIMEOUT: 5, // 5 секунд для стабильности

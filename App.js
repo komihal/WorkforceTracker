@@ -1,18 +1,42 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SafeAreaView, Text, BackHandler, AppState } from 'react-native';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
 import authService from './src/services/authService';
 import punchService from './src/services/punchService';
 import deviceUtils from './src/utils/deviceUtils';
-import { initBgGeo, startTracking } from './src/location.js';
+import { initBgGeo, startTracking, getLicenseInfo } from './src/location.js';
 import backgroundService from './src/services/backgroundService';
 import { getGeoConfig } from './src/config/geoConfig';
 import { Alert } from 'react-native';
+import { ensureBgStarted } from './src/bg/trackingController';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('login');
   const [isLoading, setIsLoading] = useState(true);
+  const appState = useRef(AppState.currentState);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await initBgGeo();
+        // короткая задержка, чтобы успели подняться контексты
+        setTimeout(() => ensureBgStarted("app_boot"), 1500);
+      } catch {}
+    })();
+
+    const sub = AppState.addEventListener('change', async (next) => {
+      if (appState.current.match(/inactive|background/) && next === 'active') {
+        const lic = getLicenseInfo();
+        if (!lic.initSucceeded) {
+          await initBgGeo();
+        }
+      }
+      appState.current = next;
+    });
+
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     checkAuthStatus();

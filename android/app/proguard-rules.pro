@@ -8,3 +8,11 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# TSLocationManager / BGGeo
+-keep class com.transistorsoft.** { *; }
+-keep class com.google.android.gms.location.** { *; }
+
+# react-native-config
+-keep class com.lugg.ReactNativeConfig.** { *; }
+-dontwarn com.lugg.ReactNativeConfig.**

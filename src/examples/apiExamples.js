@@ -3,6 +3,8 @@
  * Этот файл содержит примеры всех основных API вызовов
  */
 
+import Config from 'react-native-config';
+
 import authService from '../services/authService';
 import punchService from '../services/punchService';
 import geoService from '../services/geoService';
@@ -41,7 +43,7 @@ export const examplePunchIn = async (userId) => {
     // Выполняем punch in
     const result = await punchService.punchIn(
       userId,
-      '123456789012345', // IMEI
+      Config.DEVICE_IMEI || 'unknown-device', // IMEI из .env
       photoResult.success ? photoResult.data.fileName : 'start_shift.jpg'
     );
     
@@ -54,7 +56,7 @@ export const examplePunchIn = async (userId) => {
           photoResult.data.uri,
           userId,
           1, // place_id
-          '123456789012345', // IMEI
+          Config.DEVICE_IMEI || 'unknown-device', // IMEI из .env
           'start-shift'
         );
         console.log('📤 Результат загрузки фото:', uploadResult);
@@ -83,7 +85,7 @@ export const examplePunchOut = async (userId) => {
     // Выполняем punch out
     const result = await punchService.punchOut(
       userId,
-      '123456789012345', // IMEI
+      Config.DEVICE_IMEI || 'unknown-device', // IMEI из .env
       photoResult.success ? photoResult.data.fileName : 'end_shift.jpg'
     );
     
@@ -96,7 +98,7 @@ export const examplePunchOut = async (userId) => {
           photoResult.data.uri,
           userId,
           1, // place_id
-          '123456789012345', // IMEI
+          Config.DEVICE_IMEI || 'unknown-device', // IMEI из .env
           'end-shift'
         );
         console.log('📤 Результат загрузки финального фото:', uploadResult);
@@ -174,7 +176,7 @@ export const examplePhotoUpload = async (userId) => {
         photoResult.data.uri,
         userId,
         1, // place_id
-        '123456789012345', // IMEI
+        Config.DEVICE_IMEI || 'unknown-device', // IMEI из .env
         'example-photo'
       );
       

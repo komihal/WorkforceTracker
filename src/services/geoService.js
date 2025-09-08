@@ -28,13 +28,13 @@ class GeoService {
     const geoPoint = {
       lat: lat,
       lon: lon,
-      utm: Math.floor(Date.now() / 1000),
+      utm: Math.floor(Date.now() / 1000).toString(), // Исправлено: должно быть строкой согласно требованиям бекенда
       alt: alt || 0,
       altmsl: altMsl || 0,
       hasalt: hasAlt || false,
       hasaltmsl: hasAltMsl || false,
-      hasaltmslaccucacy: hasAltMslAccuracy || false,
-      mslaccucacyMeters: mslAccuracyMeters || 0,
+      hasaltmslaccuracy: hasAltMslAccuracy || false,
+      mslaccuracyMeters: mslAccuracyMeters || 0,
     };
 
     this.geoData.push(geoPoint);
@@ -50,7 +50,7 @@ class GeoService {
 
       const payload = {
         user_id: userId,
-        place_id: placeId,
+        place_id: placeId || 1, // Исправлено: по умолчанию должно быть 1 согласно требованиям бекенда
         phone_imei: phoneImei,
         geo_array: this.geoData,
         api_token: API_CONFIG.API_TOKEN,
@@ -113,8 +113,8 @@ class GeoService {
       });
       
       const loc = await BackgroundGeolocation.getCurrentPosition({
-        timeout: 15,
-        samples: 1,
+        timeout: 30,
+        samples: 3, // Берем 3 образца для лучшей точности
         persist: false,
         maximumAge: geoConfig.MAX_AGE,
         desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,

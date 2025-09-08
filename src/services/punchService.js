@@ -17,7 +17,7 @@ class PunchService {
         api_token: API_CONFIG.API_TOKEN,
         user_id: userId,
         timestamp: timestamp,
-        status: 0, // 0 = punch in
+        status: 1, // 1 = punch in (открытие смены)
         phone_imei: phoneImei,
         photo_name: photoName,
       }, {
@@ -100,7 +100,7 @@ class PunchService {
         api_token: API_CONFIG.API_TOKEN,
         user_id: userId,
         timestamp: timestamp,
-        status: 1, // 1 = punch out
+        status: 0, // 0 = punch out (закрытие смены)
         phone_imei: phoneImei,
         photo_name: photoName,
       }, {
@@ -176,46 +176,257 @@ class PunchService {
     }
   }
 
+  // Новый метод для автоматического закрытия смены без фото
+  async autoPunchOut(userId, phoneImei) {
+    try {
+      const timestamp = Math.floor(Date.now() / 1000);
+      
+      console.log('=== AUTO PUNCH OUT ===');
+      console.log('Auto-closing shift for user_id:', userId);
+      console.log('Timestamp:', timestamp);
+      
+      const response = await this.axiosInstance.post(API_CONFIG.ENDPOINTS.PUNCH, {
+        api_token: API_CONFIG.API_TOKEN,
+        user_id: userId,
+        timestamp: timestamp,
+        status: 0, // 0 = punch out (закрытие смены)
+        phone_imei: phoneImei,
+        photo_name: 'auto_close_' + timestamp + '.jpg', // Автоматическое имя фото
+      }, {
+        headers: getApiTokenHeaders(),
+      });
+
+      console.log('Auto punch out response:', JSON.stringify(response.data, null, 2));
+
+      if (response.data && response.data.success) {
+        return { success: true, data: response.data };
+      } else {
+        return { success: false, error: response.data.message || 'Ошибка автоматического завершения смены' };
+      }
+    } catch (error) {
+      console.error('Punch out error:', error);
+      
+      // Проверяем тип ошибки
+      if (error.code === 'NETWORK_ERROR' || error.message?.includes('Network Error')) {
+        return {
+          success: false,
+          error: 'Ошибка подключения к серверу. Проверьте интернет-соединение.',
+        };
+      }
+      
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        return {
+          success: false,
+          error: 'Превышено время ожидания ответа сервера. Попробуйте позже.',
+        };
+      }
+      
+      const statusCode = error?.response?.status;
+      const serverMessage = error?.response?.data?.message;
+      
+      // Специальная обработка для заблокированного пользователя
+      const isBlockedByStatus = statusCode === 423; // HTTP 423 Locked
+      const isBlockedByMessage = typeof serverMessage === 'string' && /(block|заблок)/i.test(serverMessage);
+      
+      if (isBlockedByStatus || isBlockedByMessage) {
+        return { success: false, error: 'Пользователь заблокирован. Обратитесь к администратору.' };
+      }
+      
+      // Обработка HTTP ошибок
+      if (statusCode) {
+        switch (statusCode) {
+          case 400:
+            return { success: false, error: 'Неверный запрос. Проверьте данные.' };
+          case 401:
+            return { success: false, error: 'Не авторизован. Войдите в систему заново.' };
+          case 403:
+            return { success: false, error: 'Доступ запрещен.' };
+          case 404:
+            return { success: false, error: 'Сервис временно недоступен.' };
+          case 500:
+            return { success: false, error: 'Ошибка сервера. Попробуйте позже.' };
+          case 502:
+          case 503:
+          case 504:
+            return { success: false, error: 'Сервис временно недоступен. Попробуйте позже.' };
+          default:
+            return { success: false, error: serverMessage || `Ошибка сервера (${statusCode})` };
+        }
+      }
+      
+      // Если нет статуса, но есть сообщение от сервера
+      if (serverMessage) {
+        return { success: false, error: serverMessage };
+      }
+      
+      // Общая ошибка сети
+      return {
+        success: false,
+        error: 'Не удалось подключиться к серверу. Проверьте интернет-соединение.',
+      };
+    }
+  }
+
+
+
+  // Метод для проверки статуса рабочего
   async getWorkerStatus(userId) {
     try {
-      // Добавляем детальное логирование для отладки
       console.log('=== GET WORKER STATUS DEBUG ===');
-      console.log('Requesting status for user_id:', userId);
-      console.log('User ID type:', typeof userId);
-      console.log('Full URL:', `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.WORKER_STATUS}?user_id=${userId}`);
-      console.log('Headers:', getApiTokenHeaders());
+      console.log('Requesting worker status for user_id:', userId);
       
       const response = await this.axiosInstance.get(
-        `${API_CONFIG.ENDPOINTS.WORKER_STATUS}?user_id=${userId}`,
-        { headers: getApiTokenHeaders() }
+        API_CONFIG.ENDPOINTS.WORKER_STATUS,
+        {
+          params: {
+            api_token: API_CONFIG.API_TOKEN,
+            user_id: userId,
+          },
+          headers: getApiTokenHeaders(),
+        }
       );
 
-      console.log('Response status:', response.status);
-      console.log('Response data:', JSON.stringify(response.data, null, 2));
+      console.log('Worker status response:', JSON.stringify(response.data, null, 2));
       console.log('=== END GET WORKER STATUS DEBUG ===');
 
-      // Эндпоинт может возвращать как обёртку с { success, ... }, так и объект без success
-      const data = response?.data;
-      if (!data) {
-        return { success: false, error: 'Пустой ответ сервера' };
+      // Проверяем, что ответ содержит данные (API не возвращает success поле)
+      if (response.data && (response.data.user_id || response.data.worker_status)) {
+        return {
+          success: true,
+          data: response.data
+        };
+      } else {
+        return {
+          success: false,
+          error: response.data?.message || 'Не удалось получить статус рабочего'
+        };
       }
-      if (typeof data === 'object' && Object.prototype.hasOwnProperty.call(data, 'success')) {
-        return data.success ? { success: true, data } : { success: false, error: data.message || 'Ошибка получения статуса' };
-      }
-      // Если success нет, считаем успешным ответом c данными пользователя
-      return { success: true, data };
     } catch (error) {
-      // В dev-режиме console.error вызывает красный экран. Понижаем уровень логирования.
+      console.warn('Get worker status error:', error?.message || 'Unknown error');
+      
+      // Проверяем тип ошибки
+      if (error.code === 'NETWORK_ERROR' || error.message?.includes('Network Error')) {
+        return {
+          success: false,
+          error: 'Ошибка подключения к серверу. Проверьте интернет-соединение.',
+        };
+      }
+      
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        return {
+          success: false,
+          error: 'Превышено время ожидания ответа сервера. Попробуйте позже.',
+        };
+      }
+      
       const statusCode = error?.response?.status;
-      const serverData = error?.response?.data;
-      const message = error?.message || 'Unknown error';
-      console.warn('Get worker status error:', message);
-      if (__DEV__) {
-        console.log('Error details:', {
-          statusCode,
-          serverData,
-          isNetworkError: error?.code === 'NETWORK_ERROR' || message.includes('Network Error'),
-        });
+      const serverMessage = error?.response?.data?.message;
+      
+      // Обработка HTTP ошибок
+      if (statusCode) {
+        switch (statusCode) {
+          case 400:
+            return { success: false, error: 'Неверный запрос. Проверьте данные.' };
+          case 401:
+            return { success: false, error: 'Не авторизован. Войдите в систему заново.' };
+          case 403:
+            return { success: false, error: 'Доступ запрещен.' };
+          case 404:
+            return { success: false, error: 'Сервис временно недоступен.' };
+          case 500:
+            return { success: false, error: 'Ошибка сервера. Попробуйте позже.' };
+          case 502:
+          case 503:
+          case 504:
+            return { success: false, error: 'Сервис временно недоступен. Попробуйте позже.' };
+          default:
+            return { success: false, error: serverMessage || `Ошибка сервера (${statusCode})` };
+        }
+      }
+      
+      // Если нет статуса, но есть сообщение от сервера
+      if (serverMessage) {
+        return { success: false, error: serverMessage };
+      }
+      
+      // Общая ошибка сети
+      return {
+        success: false,
+        error: 'Не удалось подключиться к серверу. Проверьте интернет-соединение.',
+      };
+    }
+  }
+
+  // Новый метод для проверки статуса смены согласно инструкции
+  async getShiftStatus(userId) {
+    try {
+      console.log('=== GET SHIFT STATUS DEBUG ===');
+      console.log('Requesting shift status for user_id:', userId);
+      
+      // Используем новый API endpoint согласно инструкции
+      const response = await this.axiosInstance.get(
+        `${API_CONFIG.ENDPOINTS.ACTIVE_SHIFT}/?user_id=${userId}`,
+        { 
+          headers: getApiTokenHeaders(),
+          timeout: 5000 // 5 секунд таймаут
+        }
+      );
+      
+      console.log('Active shift response:', JSON.stringify(response.data, null, 2));
+      console.log('=== END GET SHIFT STATUS DEBUG ===');
+      
+      // Анализируем данные согласно новому API
+      const data = response.data;
+      
+      // Определяем статус смены
+      const isShiftActive = data.has_active_shift || false;
+      
+      // Сохраняем успешный ответ в кэш
+      global.cachedShiftStatus = {
+        hasActiveShift: isShiftActive,
+        timestamp: Date.now(),
+        userId: userId,
+        fullData: data
+      };
+      
+      return {
+        success: true,
+        data: {
+          is_working: isShiftActive,
+          shift_active: isShiftActive,
+          has_active_shift: data.has_active_shift,
+          worker: data.worker,
+          active_shift: data.active_shift,
+          last_shift: data.last_shift
+        }
+      };
+      
+    } catch (error) {
+      console.warn('Get shift status error:', error?.message || 'Unknown error');
+      
+      // Используем кэшированный статус при ошибках сети
+      if (global.cachedShiftStatus && global.cachedShiftStatus.userId === userId) {
+        const cacheAge = Date.now() - global.cachedShiftStatus.timestamp;
+        const maxCacheAge = 5 * 60 * 1000; // 5 минут
+        
+        if (cacheAge < maxCacheAge) {
+          console.log(`getShiftStatus: Using cached status (age: ${Math.round(cacheAge/1000)}s) for user ${userId}`);
+          
+          const cachedData = global.cachedShiftStatus.fullData || {};
+          return {
+            success: true,
+            data: {
+              is_working: global.cachedShiftStatus.hasActiveShift,
+              shift_active: global.cachedShiftStatus.hasActiveShift,
+              has_active_shift: global.cachedShiftStatus.hasActiveShift,
+              worker: cachedData.worker,
+              active_shift: cachedData.active_shift,
+              last_shift: cachedData.last_shift
+            }
+          };
+        } else {
+          console.log(`getShiftStatus: Cached status too old (age: ${Math.round(cacheAge/1000)}s)`);
+        }
       }
       
       // Проверяем тип ошибки
@@ -233,15 +444,8 @@ class PunchService {
         };
       }
       
+      const statusCode = error?.response?.status;
       const serverMessage = error?.response?.data?.message;
-      
-      // Специальная обработка для заблокированного пользователя
-      const isBlockedByStatus = statusCode === 423; // HTTP 423 Locked
-      const isBlockedByMessage = typeof serverMessage === 'string' && /(block|заблок)/i.test(serverMessage);
-      
-      if (isBlockedByStatus || isBlockedByMessage) {
-        return { success: false, error: 'Пользователь заблокирован. Обратитесь к администратору.' };
-      }
       
       // Обработка HTTP ошибок
       if (statusCode) {
