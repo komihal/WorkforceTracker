@@ -17,6 +17,7 @@ import punchService from '../services/punchService';
 import geoService from '../services/geoService';
 import backgroundService from '../services/backgroundService';
 import cameraService from '../services/cameraService';
+import SelfieCaptureModal from './SelfieCaptureModal';
 import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
 import { ensureAlwaysLocationPermission, runSequentialPermissionFlow, forceShowBackgroundPermissionDialog, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
@@ -36,6 +37,8 @@ const MainScreen = ({ onLogout }) => {
   const [shiftStatusManager, setShiftStatusManager] = useState(null);
   const [indicators, setIndicators] = useState({ gps: false, network: false, battery: true, permission: false, notifications: true });
   const [showUserDetails, setShowUserDetails] = useState(false);
+  const [selfieVisible, setSelfieVisible] = useState(false);
+  const selfieResolveRef = useRef(null);
   
   // Guards для предотвращения повторных вызовов
   const batteryOptimizationRequested = useRef(false);
@@ -296,17 +299,12 @@ const MainScreen = ({ onLogout }) => {
     }
 
     try {
-      // Требуем фото. Во фронтальную камеру. В dev допускаем выбор из галереи при неудаче
-      let photoResult = await cameraService.takePhoto({ cameraType: 'front' });
-
-      if (!photoResult.success && __DEV__) {
-        const galleryResult = await cameraService.selectPhoto();
-        if (galleryResult.success) {
-          photoResult = galleryResult;
-        }
-      }
-
-      if (!photoResult.success) {
+      // Селфи через VisionCamera
+      const selfie = await new Promise((resolve) => {
+        selfieResolveRef.current = resolve;
+        setSelfieVisible(true);
+      });
+      if (!selfie || !selfie.uri) {
         Alert.alert('Требуется фото', 'Для начала смены необходимо сделать фото.');
         setIsLoading(false);
         return;
@@ -333,9 +331,9 @@ const MainScreen = ({ onLogout }) => {
       const phoneImeiIn = await deviceUtils.getDeviceId();
       const uploadIn = await fileUploadService.uploadShiftPhoto(
         {
-          uri: photoResult.data?.uri,
-          type: photoResult.data?.type,
-          fileName: photoResult.data?.fileName || `start_${Date.now()}.jpg`,
+          uri: selfie.uri,
+          type: selfie.type || 'image/jpeg',
+          fileName: selfie.fileName || `start_${Date.now()}.jpg`,
         },
         currentUser.user_id || 123,
         phoneImeiIn,
@@ -431,17 +429,12 @@ const MainScreen = ({ onLogout }) => {
 
     setIsLoading(true);
     try {
-      // Требуем фото. Явно запрашиваем фронтальную камеру
-      let photoResult = await cameraService.takePhoto({ cameraType: 'front' });
-
-      if (!photoResult.success && __DEV__) {
-        const galleryResult = await cameraService.selectPhoto();
-        if (galleryResult.success) {
-          photoResult = galleryResult;
-        }
-      }
-
-      if (!photoResult.success) {
+      // Селфи через VisionCamera
+      const selfie = await new Promise((resolve) => {
+        selfieResolveRef.current = resolve;
+        setSelfieVisible(true);
+      });
+      if (!selfie || !selfie.uri) {
         Alert.alert('Требуется фото', 'Для завершения смены необходимо сделать фото.');
         setIsLoading(false);
         return;
@@ -468,9 +461,9 @@ const MainScreen = ({ onLogout }) => {
       const phoneImeiOut = await deviceUtils.getDeviceId();
       const uploadOut = await fileUploadService.uploadShiftPhoto(
         {
-          uri: photoResult.data?.uri,
-          type: photoResult.data?.type,
-          fileName: photoResult.data?.fileName || `end_${Date.now()}.jpg`,
+          uri: selfie.uri,
+          type: selfie.type || 'image/jpeg',
+          fileName: selfie.fileName || `end_${Date.now()}.jpg`,
         },
         currentUser.user_id || 123,
         phoneImeiOut,
@@ -848,6 +841,24 @@ const MainScreen = ({ onLogout }) => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      {/* Модал селфи */}
+      <SelfieCaptureModal
+        visible={selfieVisible}
+        onCancel={() => {
+          setSelfieVisible(false);
+          if (selfieResolveRef.current) {
+            selfieResolveRef.current(null);
+            selfieResolveRef.current = null;
+          }
+        }}
+        onCaptured={(data) => {
+          setSelfieVisible(false);
+          if (selfieResolveRef.current) {
+            selfieResolveRef.current(data);
+            selfieResolveRef.current = null;
+          }
+        }}
+      />
     </SafeAreaView>
   );
 };
