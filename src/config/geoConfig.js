@@ -6,7 +6,7 @@ export const GEO_CONFIG = {
     DISTANCE_FILTER: 3, // 5 метров для точного контроля на стройке
     
     // Heartbeat интервал для BackgroundGeolocation (секунды)
-    HEARTBEAT_INTERVAL: 300, // 300 секунд (5 минут) для периодической отправки
+    HEARTBEAT_INTERVAL: 120, // 120 секунд (2 минуты) для регулярной отправки геолокации
     
     // Таймаут остановки (секунды)
     STOP_TIMEOUT: 1, // 1 секунда для быстрого тестирования
@@ -21,7 +21,7 @@ export const GEO_CONFIG = {
     DISTANCE_FILTER: 5, // 5 метров для точного контроля на стройке
     
     // Heartbeat интервал для BackgroundGeolocation (секунды)
-    HEARTBEAT_INTERVAL: 300, // 300 секунд (5 минут) для периодической отправки
+    HEARTBEAT_INTERVAL: 120, // 120 секунд (2 минуты) для регулярной отправки геолокации
     
     // Таймаут остановки (секунды)
     STOP_TIMEOUT: 5, // 5 секунд для стабильности

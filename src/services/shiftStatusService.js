@@ -8,9 +8,9 @@ let globalLastRun = 0;
 let globalStatusUpdateCallback = null;
 let globalUserId = null;
 
-const POLL_MIN_INTERVAL_MS = 15000; // 15s
+const POLL_MIN_INTERVAL_MS = 30000; // 30s - увеличиваем интервал для снижения нагрузки
 const POLL_TIMEOUT_MS = 10000;      // timeout для запроса
-const RETRY_BACKOFF_MS = 30000;     // 30s при ошибке
+const RETRY_BACKOFF_MS = 60000;     // 60s при ошибке - увеличиваем backoff
 
 function now() { return Date.now(); }
 
@@ -23,11 +23,11 @@ async function pollShiftStatusOnce(controller) {
   try {
     console.log('[ShiftPoll] Fetching status...');
     const response = await fetch(
-      `${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${globalUserId}`, 
+      `${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${globalUserId}&api_token=${API_CONFIG.API_TOKEN}`, 
       {
         headers: {
-          'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
           'Content-Type': 'application/json',
+          'Api-token': API_CONFIG.API_TOKEN,
         },
       }
     );
@@ -102,54 +102,10 @@ class ShiftStatusManager {
   }
   
   connect() {
-    // Включаем polling для получения статуса смены
+    // ВРЕМЕННО ОТКЛЮЧАЕМ WEBSOCKET - используем только polling
+    console.log('WebSocket temporarily disabled - using polling only');
     console.log('Starting shift status polling...');
     this.startPolling();
-    return;
-    
-    const wsUrl = `wss://api.tabelshik.com/ws/shift-status/${this.userId}/`;
-    
-    try {
-      console.log('=== WEBSOCKET CONNECTION ===');
-      console.log('Connecting to:', wsUrl);
-      
-      this.websocket = new WebSocket(wsUrl);
-      
-      this.websocket.onopen = () => {
-        console.log('WebSocket подключен - LIVE обновления активны');
-        this.isConnected = true;
-        this.stopPolling();
-      };
-      
-      this.websocket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('WebSocket message received:', data);
-          
-          if (data.type === 'shift_status_update') {
-            this.updateUI(data.data);
-          }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-      
-      this.websocket.onclose = (event) => {
-        console.log('WebSocket отключен - запуск polling:', event.code);
-        this.isConnected = false;
-        this.startPolling();
-      };
-      
-      this.websocket.onerror = (error) => {
-        console.log('WebSocket ошибка - запуск polling:', error);
-        this.isConnected = false;
-        this.startPolling();
-      };
-      
-    } catch (error) {
-      console.log('Ошибка WebSocket:', error);
-      this.startPolling();
-    }
   }
   
   startPolling() {
@@ -191,10 +147,10 @@ class ShiftStatusManager {
   
   async getCurrentStatus() {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${this.userId}`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${this.userId}&api_token=${API_CONFIG.API_TOKEN}`, {
         headers: {
-          'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
           'Content-Type': 'application/json',
+          'Api-token': API_CONFIG.API_TOKEN,
         },
       });
       
@@ -226,8 +182,8 @@ class ShiftStatusManager {
       const response = await fetch(`${API_CONFIG.BASE_URL}/api/punch/`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
           'Content-Type': 'application/json',
+          'Api-token': API_CONFIG.API_TOKEN,
         },
         body: JSON.stringify(punchData)
       });

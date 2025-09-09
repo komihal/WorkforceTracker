@@ -19,12 +19,11 @@ import backgroundService from '../services/backgroundService';
 import cameraService from '../services/cameraService';
 import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
-import { ensureAlwaysLocationPermission, runSequentialPermissionFlow } from '../services/permissionsService';
+import { ensureAlwaysLocationPermission, runSequentialPermissionFlow, forceShowBackgroundPermissionDialog, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
 import ShiftStatusManager from '../services/shiftStatusService';
 // import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
-import geoEndpointConfig, { ENDPOINT_MODES } from '../config/geoEndpointConfig';
-import transistorsoftTestConfig from '../config/transistorsoftTestConfig';
+// geo endpoint/test toggles removed
 // DebugBgScreen and BgGeoTestScreen removed - no longer needed
 
 const MainScreen = ({ onLogout }) => {
@@ -33,10 +32,10 @@ const MainScreen = ({ onLogout }) => {
   const [isShiftActive, setIsShiftActive] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [userStatus, setUserStatus] = useState(WorkerStatus.READY_TO_WORK);
-  const [endpointMode, setEndpointMode] = useState(ENDPOINT_MODES.API);
-  const [endpointDescription, setEndpointDescription] = useState('API Django (для сохранения)');
-  const [transistorsoftTestEnabled, setTransistorsoftTestEnabled] = useState(false);
+  // endpoint & test toggles removed
   const [shiftStatusManager, setShiftStatusManager] = useState(null);
+  const [indicators, setIndicators] = useState({ gps: false, network: false, battery: true, permission: false, notifications: true });
+  const [showUserDetails, setShowUserDetails] = useState(false);
   
   // Guards для предотвращения повторных вызовов
   const batteryOptimizationRequested = useRef(false);
@@ -51,7 +50,23 @@ const MainScreen = ({ onLogout }) => {
         
         // Инициализируем ShiftStatusManager
         const deviceId = await deviceUtils.getDeviceId();
-        const manager = new ShiftStatusManager(user.user_id || 123, deviceId);
+        
+        // ВРЕМЕННО ОТКЛЮЧАЕМ ShiftStatusManager для стабилизации
+        const { DISABLE_POLLING, disabledShiftStatusManager } = require('../../disable_polling_websockets');
+        const manager = DISABLE_POLLING ? disabledShiftStatusManager : new ShiftStatusManager(user.user_id || 123, deviceId);
+        
+        // Принудительно сбрасываем BGGeo конфигурацию для исправления locationTemplate
+        try {
+          const { forceResetBGGeo, checkBGGeoConfig } = require('../../force_reset_bggeo');
+          console.log('🔄 Проверяем конфигурацию BGGeo...');
+          const config = await checkBGGeoConfig();
+          if (config.hasMathFloor) {
+            console.log('🔧 Обнаружена старая конфигурация, выполняем сброс...');
+            await forceResetBGGeo();
+          }
+        } catch (e) {
+          console.log('❌ Ошибка сброса BGGeo:', e);
+        }
         
         // Устанавливаем callback для обновления UI
         manager.setStatusUpdateCallback(async (data) => {
@@ -94,18 +109,6 @@ const MainScreen = ({ onLogout }) => {
       }
     };
     
-    const loadEndpointMode = async () => {
-      const mode = await geoEndpointConfig.getCurrentMode();
-      const description = await geoEndpointConfig.getModeDescription();
-      setEndpointMode(mode);
-      setEndpointDescription(description);
-    };
-    
-    const loadTransistorsoftTestState = async () => {
-      const enabled = await transistorsoftTestConfig.isEnabled();
-      setTransistorsoftTestEnabled(enabled);
-    };
-    
     const requestLocationPermissions = async () => {
       if (locationPermissionsRequested.current) {
         console.log('Location permissions already requested, skipping...');
@@ -128,8 +131,7 @@ const MainScreen = ({ onLogout }) => {
     };
     
     loadUserData();
-    loadEndpointMode();
-    loadTransistorsoftTestState();
+    // endpoint/test toggles removed
     requestLocationPermissions();
     // Запускаем последовательный flow при первом входе в экран (foreground-only)
     setTimeout(() => { runSequentialPermissionFlow(); }, 600);
@@ -162,6 +164,65 @@ const MainScreen = ({ onLogout }) => {
     };
   }, []); // Убираем shiftStatusManager из зависимостей, чтобы избежать бесконечного цикла
 
+  // Индикаторы: GPS / сеть / энергосбережение / разрешения
+  const refreshIndicators = useCallback(async () => {
+    try {
+      let permissionOk = false;
+      try {
+        const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
+        if (Platform.OS === 'android') {
+          const bg = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+          const fine = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+          permissionOk = (bg === RESULTS.GRANTED) || (fine === RESULTS.GRANTED);
+        } else {
+          const always = await check(PERMISSIONS.IOS.LOCATION_ALWAYS);
+          const whenInUse = await check(PERMISSIONS.IOS.LOCATION_WHEN_IN_USE);
+          permissionOk = (always === RESULTS.GRANTED) || (whenInUse === RESULTS.GRANTED);
+        }
+      } catch {}
+
+      let batteryOk = true;
+      try {
+        const { getBatteryWhitelistStatus } = require('../location.js');
+        const status = await getBatteryWhitelistStatus();
+        batteryOk = Platform.OS !== 'android' ? true : !!status?.ignored;
+      } catch {}
+
+      let networkOk = false;
+      try {
+        const net = await deviceUtils.getNetworkInfo();
+        networkOk = !!net?.isConnected;
+      } catch {}
+
+      let notificationsOk = true;
+      try {
+        const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
+        if (Platform.OS === 'android' && Platform.Version >= 33) {
+          const notif = await check(PERMISSIONS.ANDROID.POST_NOTIFICATIONS);
+          notificationsOk = notif === RESULTS.GRANTED;
+        } else {
+          notificationsOk = true;
+        }
+      } catch {}
+
+      let gpsOk = false;
+      try {
+        gpsOk = await deviceUtils.isLocationAvailable();
+      } catch {}
+
+      setIndicators({ gps: !!gpsOk, network: !!networkOk, battery: !!batteryOk, permission: !!permissionOk, notifications: !!notificationsOk });
+    } catch (e) {
+      // fail-safe: не обновляем state при исключениях
+    }
+  }, []);
+
+  useEffect(() => {
+    // первичное обновление и периодический опрос
+    refreshIndicators();
+    const timer = setInterval(refreshIndicators, 10000);
+    return () => clearInterval(timer);
+  }, [refreshIndicators]);
+
   // Проверка статуса работника и смены
   // Функция checkWorkerStatus удалена - теперь используется ShiftStatusManager
 
@@ -177,6 +238,9 @@ const MainScreen = ({ onLogout }) => {
       return;
     }
 
+    // Устанавливаем состояние загрузки в самом начале
+    setIsLoading(true);
+
     // Проверяем текущий статус через новый сервис
     try {
       const currentStatus = await shiftStatusManager.getCurrentStatus();
@@ -184,6 +248,7 @@ const MainScreen = ({ onLogout }) => {
       
       if (currentStatus.has_active_shift) {
         Alert.alert('Смена уже активна', 'У вас уже есть активная смена');
+        setIsLoading(false);
         return;
       }
       
@@ -193,41 +258,46 @@ const MainScreen = ({ onLogout }) => {
       
       if (normalized === WorkerStatus.BLOCKED) {
         Alert.alert('Доступ заблокирован', 'Ваш пользователь заблокирован администратором. Обратитесь к администратору.');
+        setIsLoading(false);
         return;
       }
       
       if (normalized === WorkerStatus.FIRED) {
         Alert.alert('Доступ запрещен', 'Ваш пользователь уволен.');
+        setIsLoading(false);
         return;
       }
       
       if (!canStartShift(normalized)) {
         Alert.alert('Доступ запрещен', 'Ваш статус не позволяет начать смену.');
+        setIsLoading(false);
         return;
       }
     } catch (error) {
       console.error('Error checking current status:', error);
       Alert.alert('Ошибка', 'Не удалось проверить текущий статус.');
+      setIsLoading(false);
       return;
     }
 
-    // Затем проверяем разрешения на геолокацию
+    // Затем проверяем разрешения на геолокацию (быстрый поток в 2 клика)
     try {
-      const hasAlways = await ensureAlwaysLocationPermission();
+      const hasAlways = await requestBackgroundLocationTwoClicks();
       if (!hasAlways) {
-        Alert.alert('Разрешение на геолокацию', 'Для начала смены необходимо разрешить доступ к геолокации.');
-        return; // Блокируем старт смены без «Всегда»
+        Alert.alert('Фоновая геолокация', 'Для начала смены включите «Разрешать всегда» в настройках.');
+        setIsLoading(false);
+        return;
       }
     } catch (error) {
       console.error('Error checking location permissions:', error);
-      Alert.alert('Ошибка разрешений', 'Не удалось проверить разрешения на геолокацию.');
+      Alert.alert('Ошибка разрешений', 'Не удалось проверить/включить фоновую геолокацию.');
+      setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
     try {
-      // Требуем фото. В dev режиме допускаем выбор из галереи при неудаче камеры
-      let photoResult = await cameraService.takePhoto();
+      // Требуем фото. Во фронтальную камеру. В dev допускаем выбор из галереи при неудаче
+      let photoResult = await cameraService.takePhoto({ cameraType: 'front' });
 
       if (!photoResult.success && __DEV__) {
         const galleryResult = await cameraService.selectPhoto();
@@ -277,6 +347,13 @@ const MainScreen = ({ onLogout }) => {
         setIsLoading(false);
         return;
       }
+
+      // Принудительно отправляем стартовую геолокацию
+      await geoService.saveGeoData(
+        currentUser.user_id || 123,
+        1,
+        phoneImeiIn
+      );
 
       // Используем новый сервис для отправки punch
       const result = await shiftStatusManager.sendPunch(1); // 1 = начало смены
@@ -339,23 +416,23 @@ const MainScreen = ({ onLogout }) => {
       return;
     }
 
-    // Затем проверяем разрешения на геолокацию
+    // Затем проверяем разрешения на геолокацию (быстрый поток в 2 клика)
     try {
-      const hasAlways = await ensureAlwaysLocationPermission();
+      const hasAlways = await requestBackgroundLocationTwoClicks();
       if (!hasAlways) {
-        Alert.alert('Разрешение на геолокацию', 'Для завершения смены необходимо разрешить доступ к геолокации.');
-        return; // Блокируем завершение смены без «Всегда»
+        Alert.alert('Фоновая геолокация', 'Для завершения смены включите «Разрешать всегда» в настройках.');
+        return;
       }
     } catch (error) {
       console.error('Error checking location permissions:', error);
-      Alert.alert('Ошибка разрешений', 'Не удалось проверить разрешения на геолокацию.');
+      Alert.alert('Ошибка разрешений', 'Не удалось проверить/включить фоновую геолокацию.');
       return;
     }
 
     setIsLoading(true);
     try {
-      // Требуем фото. В dev режиме допускаем выбор из галереи при неудаче камеры
-      let photoResult = await cameraService.takePhoto();
+      // Требуем фото. Явно запрашиваем фронтальную камеру
+      let photoResult = await cameraService.takePhoto({ cameraType: 'front' });
 
       if (!photoResult.success && __DEV__) {
         const galleryResult = await cameraService.selectPhoto();
@@ -406,6 +483,13 @@ const MainScreen = ({ onLogout }) => {
         return;
       }
 
+      // Принудительно отправляем финальную геолокацию
+      await geoService.saveGeoData(
+        currentUser.user_id || 123,
+        1,
+        phoneImeiOut
+      );
+
       // Используем новый сервис для отправки punch
       const result = await shiftStatusManager.sendPunch(0); // 0 = завершение смены
 
@@ -428,57 +512,6 @@ const MainScreen = ({ onLogout }) => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Переключение режима отправки геолокации
-  const handleToggleEndpointMode = async () => {
-    const newMode = endpointMode === ENDPOINT_MODES.API ? ENDPOINT_MODES.WEBHOOK : ENDPOINT_MODES.API;
-    const success = await geoEndpointConfig.setMode(newMode);
-    
-    if (success) {
-      const description = await geoEndpointConfig.getModeDescription();
-      setEndpointMode(newMode);
-      setEndpointDescription(description);
-      
-      // Обновляем URL в BGGeo
-      try {
-        const { updateEndpointUrl } = require('../location');
-        await updateEndpointUrl();
-        console.log('BGGeo endpoint URL updated after mode change');
-      } catch (error) {
-        console.error('Error updating BGGeo endpoint URL:', error);
-      }
-      
-      Alert.alert(
-        'Режим изменен',
-        `Геолокация теперь отправляется на: ${description}`,
-        [{ text: 'OK' }]
-      );
-    } else {
-      Alert.alert('Ошибка', 'Не удалось изменить режим отправки');
-    }
-  };
-
-  // Переключение Transistorsoft test mode
-  const handleToggleTransistorsoftTest = async () => {
-    const newState = !transistorsoftTestEnabled;
-    await transistorsoftTestConfig.setEnabled(newState);
-    setTransistorsoftTestEnabled(newState);
-    
-    // Обновляем конфигурацию BGGeo
-    try {
-      const { updateEndpointUrl } = require('../location');
-      await updateEndpointUrl();
-      console.log('BGGeo configuration updated for Transistorsoft test mode');
-    } catch (error) {
-      console.error('Error updating BGGeo configuration:', error);
-    }
-    
-    Alert.alert(
-      'Режим тестирования',
-      `Transistorsoft tracker: ${newState ? 'включен' : 'выключен'}`,
-      [{ text: 'OK' }]
-    );
   };
 
   // Сохранение геоданных
@@ -521,21 +554,7 @@ const MainScreen = ({ onLogout }) => {
     }
   }, []);
 
-  // Тестирование геолокации
-  const handleTestLocation = async () => {
-    try {
-      console.log('Testing location...');
-      const geoService = require('../services/geoService').default;
-      const location = await geoService.getCurrentLocation();
-      
-      Alert.alert('Геолокация', 
-        `Lat: ${location.latitude}\nLon: ${location.longitude}\nAccuracy: ${location.accuracy}m`
-      );
-    } catch (error) {
-      console.error('Location test error:', error);
-      Alert.alert('Ошибка геолокации', error.message);
-    }
-  };
+  // тест геолокации удалён
 
   // Выход из системы
   const handleLogout = async () => {
@@ -619,18 +638,62 @@ const MainScreen = ({ onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
-        {showAlwaysBanner && Platform.OS === 'android' && (
-          <View style={styles.banner}>
-            <Text style={styles.bannerText}>Включите «Разрешать всегда» для стабильного трекинга</Text>
-            <Button title="Открыть настройки" onPress={ensureAlwaysLocationPermission} />
+        <View style={styles.headerArea}>
+          <View style={styles.logo}>
+            <Text style={styles.logoLetter}>С</Text>
           </View>
-        )}
+          <Text style={styles.appName}>Смена</Text>
+          <Text style={styles.subtitle}>{currentUser ? (displayName || '—') : 'Загрузка...'}</Text>
+        </View>
 
-        <View style={styles.header}>
-          <Text style={styles.title}>Смена</Text>
-          <Text style={styles.subtitle}>
-            {currentUser ? `Пользователь: ${displayName || '—'}` : 'Загрузка...'}
-          </Text>
+        {/* Карточка пользователя с экспандером и индикаторами/действиями */}
+        <View style={styles.userCard}>
+          <TouchableOpacity style={styles.userCardHeader} onPress={() => setShowUserDetails(v => !v)}>
+            <Text style={styles.userCardTitle}>Пользователь</Text>
+            <Text style={styles.userCardChevron}>{showUserDetails ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.userName}>{currentUser ? (displayName || '—') : '—'}</Text>
+          {showUserDetails && (
+            <View style={styles.userDetails}>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>🔑 Фоновая геолокация</Text>
+                <Text style={[styles.detailValue, indicators.permission ? styles.ok : styles.bad]}>{indicators.permission ? 'ОК' : 'Требуется'}</Text>
+                {!indicators.permission && (
+                  <Button title="Настроить" onPress={requestBackgroundLocationTwoClicks} />
+                )}
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>🔔 Уведомления</Text>
+                <Text style={[styles.detailValue, indicators.notifications ? styles.ok : styles.bad]}>{indicators.notifications ? 'ОК' : 'Выключены'}</Text>
+                {!indicators.notifications && (
+                  <Button title="Разрешить" onPress={checkNotificationsPermissionOnAppActive} />
+                )}
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>🔋 Энергосбережение</Text>
+                <Text style={[styles.detailValue, indicators.battery ? styles.ok : styles.bad]}>{indicators.battery ? 'ОК' : 'Включено'}</Text>
+                {!indicators.battery && (
+                  <Button title="Открыть" onPress={requestBatteryOptimization} />
+                )}
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Короткие индикаторы: GPS / сеть / энергосбережение / разрешения */}
+        <View style={styles.indicatorsRow}>
+          <View style={[styles.indicatorItem, indicators.gps ? styles.indicatorOk : styles.indicatorBad]}>
+            <Text style={styles.indicatorLabel}>📍 GPS</Text>
+          </View>
+          <View style={[styles.indicatorItem, indicators.network ? styles.indicatorOk : styles.indicatorBad]}>
+            <Text style={styles.indicatorLabel}>🌐 Сеть</Text>
+          </View>
+          <View style={[styles.indicatorItem, indicators.battery ? styles.indicatorOk : styles.indicatorBad]}>
+            <Text style={styles.indicatorLabel}>🔋 Энергосбережение</Text>
+          </View>
+          <View style={[styles.indicatorItem, indicators.permission ? styles.indicatorOk : styles.indicatorBad]}>
+            <Text style={styles.indicatorLabel}>🔑 Разрешения</Text>
+          </View>
         </View>
 
         <View style={styles.statusCard}>
@@ -659,7 +722,7 @@ const MainScreen = ({ onLogout }) => {
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.buttonText}>Начать смену</Text>
+                  <Text style={styles.buttonText}>Открыть смену</Text>
                 )}
               </TouchableOpacity>
             ) : (
@@ -770,59 +833,13 @@ const MainScreen = ({ onLogout }) => {
               {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.buttonText}>Завершить смену</Text>
+                <Text style={styles.buttonText}>Закрыть смену</Text>
               )}
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Переключатель режима отправки геолокации */}
-        <View style={styles.endpointToggleSection}>
-          <Text style={styles.sectionTitle}>Режим отправки геолокации</Text>
-          <TouchableOpacity
-            style={[styles.button, styles.endpointToggleButton]}
-            onPress={handleToggleEndpointMode}
-          >
-            <Text style={styles.buttonText}>
-              {endpointMode === ENDPOINT_MODES.WEBHOOK ? '🔗' : '💾'} {endpointDescription}
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.endpointDescription}>
-            {endpointMode === ENDPOINT_MODES.WEBHOOK 
-              ? 'Данные отправляются на webhook для мониторинга' 
-              : 'Данные сохраняются в базе данных Django'}
-          </Text>
-        </View>
-
-        {/* Переключатель Transistorsoft test mode */}
-        <View style={styles.endpointToggleSection}>
-          <Text style={styles.sectionTitle}>Тестирование</Text>
-          <TouchableOpacity
-            style={[styles.button, transistorsoftTestEnabled ? styles.testButtonActive : styles.testButton]}
-            onPress={handleToggleTransistorsoftTest}
-          >
-            <Text style={styles.buttonText}>
-              🧪 Transistorsoft Test: {transistorsoftTestEnabled ? 'Включен' : 'Выключен'}
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.endpointDescription}>
-            {transistorsoftTestEnabled 
-              ? 'Данные отправляются на tracker.transistorsoft.com для тестирования' 
-              : 'Используется обычная конфигурация'}
-          </Text>
-        </View>
-
-
-
-
-
         <View style={styles.bottomButtons}>
-          <TouchableOpacity
-            style={[styles.button, styles.testButton]}
-            onPress={handleTestLocation}
-          >
-            <Text style={styles.buttonText}>🧪 Тест геолокации</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.button, styles.logoutButton]}
             onPress={handleLogout}
@@ -849,6 +866,31 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 30,
   },
+  headerArea: {
+    alignItems: 'center',
+    paddingTop: 76,
+    paddingBottom: 12,
+  },
+  logo: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  logoLetter: {
+    color: '#fff',
+    fontSize: 34,
+    fontWeight: '800',
+  },
+  appName: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 6,
+  },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -859,12 +901,86 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
+  userCard: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  userCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  userCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+  },
+  userCardChevron: {
+    fontSize: 16,
+    color: '#666',
+  },
+  userName: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 8,
+  },
+  userDetails: {
+    gap: 10,
+    marginTop: 4,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  detailLabel: {
+    flex: 1,
+    color: '#333',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  detailValue: {
+    marginRight: 6,
+    fontWeight: '700',
+  },
+  ok: { color: '#2e7d32' },
+  bad: { color: '#c62828' },
   statusCard: {
     backgroundColor: '#fff',
     padding: 20,
     borderRadius: 12,
     marginBottom: 20,
     alignItems: 'center',
+  },
+  indicatorsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 16,
+  },
+  indicatorItem: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  indicatorOk: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#4CAF50',
+  },
+  indicatorBad: {
+    backgroundColor: '#FFEBEE',
+    borderColor: '#F44336',
+  },
+  indicatorLabel: {
+    color: '#333',
+    fontSize: 12,
+    fontWeight: '600',
   },
   statusTitle: {
     fontSize: 18,
@@ -960,6 +1076,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 14,
     fontWeight: '600'
+  },
+  bannerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 8,
   },
   testButton: {
     backgroundColor: '#FF9800',

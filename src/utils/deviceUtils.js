@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import Config from 'react-native-config';
+import DeviceInfo from 'react-native-device-info';
 
 class DeviceUtils {
   constructor() {
@@ -13,17 +14,27 @@ class DeviceUtils {
     }
 
     try {
-      // В реальном приложении здесь будет получение реальных данных устройства
-      // Пока используем тестовые данные
+      const brand = DeviceInfo.getBrand?.() || 'Unknown';
+      const model = DeviceInfo.getModel?.() || 'Unknown';
+      const systemVersion = DeviceInfo.getSystemVersion?.() || String(Platform.Version);
+      // На Android 10+ IMEI получить нельзя без привилегий. Используем стабильный ANDROID_ID.
+      const androidId = Platform.OS === 'android'
+        ? (await DeviceInfo.getAndroidId?.())
+        : undefined;
+      const vendorId = Platform.OS === 'ios'
+        ? (DeviceInfo.getUniqueId?.())
+        : undefined;
+      const uniqueId = (androidId || vendorId || Config.DEVICE_IMEI || 'unknown-device');
+
       this.deviceInfo = {
         platform: Platform.OS,
         version: Platform.Version,
-        isTablet: false,
-        brand: 'Test Device',
-        model: 'Test Model',
-        systemVersion: 'Test Version',
-        uniqueId: Config.DEVICE_IMEI || 'unknown-device', // IMEI из .env или fallback
-        deviceName: 'Test Device Name',
+        isTablet: DeviceInfo.isTablet?.() || false,
+        brand,
+        model,
+        systemVersion,
+        uniqueId,
+        deviceName: (DeviceInfo.getDeviceNameSync ? DeviceInfo.getDeviceNameSync() : 'Unknown Device'),
         userAgent: 'React Native Workforce Tracker',
       };
 

@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Platform,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
 import authService from '../services/authService';
 // permissions test removed
@@ -69,76 +71,91 @@ const LoginScreen = ({ onLoginSuccess }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Workforce Tracker</Text>
-        <Text style={styles.subtitle}>Вход в систему</Text>
-        
-        <View style={styles.form}>
-          <View style={styles.phoneInputWrapper}>
-            <TextInput
-              style={[styles.input, styles.inputWithPrefix]}
-              placeholder="(___) ___-__-__"
-              value={formatRuPhone(userLogin)}
-              onChangeText={handlePhoneChange}
-              keyboardType="number-pad"
-              autoCapitalize="none"
-              editable={!isLoading}
-              placeholderTextColor="#9E9E9E"
-              selectionColor="#007AFF"
-              maxLength={16}
-            />
-            <View style={styles.phonePrefixContainer} pointerEvents="none">
-              <Text style={styles.phoneFixedPrefix}>+7</Text>
-            </View>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <View style={styles.headerArea}>
+          <View style={styles.logo}>
+            <Text style={styles.logoLetter}>С</Text>
           </View>
-          
-          <View style={styles.passwordWrapper}>
-            <TextInput
-              style={[styles.input, styles.passwordInput]}
-              placeholder="Пароль"
-              value={userPassword}
-              onChangeText={setUserPassword}
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              editable={!isLoading}
-              placeholderTextColor="#9E9E9E"
-              selectionColor="#007AFF"
-            />
-            <TouchableOpacity
-              onPress={() => setShowPassword(v => !v)}
-              accessibilityLabel={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
-              style={styles.eyeButton}
-              disabled={isLoading}
-            >
-              <Text style={styles.eyeText}>{showPassword ? '🙈' : '👁️'}</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <TouchableOpacity
-            style={[styles.button, isLoading && styles.buttonDisabled]}
-            onPress={handleLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Войти</Text>
-            )}
-          </TouchableOpacity>
-          
-          {/* test permissions button removed */}
+          <Text style={styles.appName}>Смена</Text>
+          <Text style={styles.subtitle}>Вход в систему</Text>
         </View>
 
-        {__DEV__ ? (
-          <View style={styles.info}>
-            <Text style={styles.infoText}>
-              Для тестирования используйте:{'\n'}
-              Логин: 79999999999{'\n'}
-              Пароль: 123456
-            </Text>
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.form}>
+            <View style={styles.phoneInputWrapper}>
+              <TextInput
+                style={[styles.input, styles.inputWithPrefix]}
+                placeholder="(___) ___-__-__"
+                value={formatRuPhone(userLogin)}
+                onChangeText={handlePhoneChange}
+                keyboardType="number-pad"
+                autoCapitalize="none"
+                editable={!isLoading}
+                placeholderTextColor="#9E9E9E"
+                selectionColor="#007AFF"
+                maxLength={16}
+              />
+              <View style={styles.phonePrefixContainer} pointerEvents="none">
+                <Text style={styles.phoneFixedPrefix}>+7</Text>
+              </View>
+            </View>
+            
+            <View style={styles.passwordWrapper}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder="Пароль"
+                value={userPassword}
+                onChangeText={setUserPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                editable={!isLoading}
+                placeholderTextColor="#9E9E9E"
+                selectionColor="#007AFF"
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword(v => !v)}
+                accessibilityLabel={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                style={styles.eyeButton}
+                disabled={isLoading}
+              >
+                <Text style={styles.eyeText}>{showPassword ? '🙈' : '👁️'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, isLoading && styles.buttonDisabled, styles.loginButtonElevated]}
+              onPress={handleLogin}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Войти</Text>
+              )}
+            </TouchableOpacity>
+
+            {__DEV__ ? (
+              <View style={styles.info}>
+                <Text style={styles.infoText}>
+                  Для тестирования используйте:{'\n'}
+                  Логин: 79999999999{'\n'}
+                  Пароль: 123456
+                </Text>
+              </View>
+            ) : null}
           </View>
-        ) : null}
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -148,24 +165,50 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  content: {
+  flex: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    color: '#333',
+  headerArea: {
+    alignItems: 'center',
+    paddingTop: 76,
+    paddingBottom: 8,
+  },
+  logo: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  logoLetter: {
+    color: '#fff',
+    fontSize: 34,
+    fontWeight: '800',
+  },
+  appName: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#222',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
   },
   subtitle: {
     fontSize: 18,
     textAlign: 'center',
     color: '#666',
-    marginBottom: 20,
+    marginBottom: 8,
   },
   form: {
     marginBottom: 20,
@@ -216,6 +259,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  footer: {
+    padding: 16,
+    backgroundColor: '#f5f5f5',
+  },
+  loginButtonElevated: {
+    marginTop: 8,
+    marginBottom: 4,
   },
   info: {
     backgroundColor: '#e8f4fd',

@@ -10,19 +10,33 @@ import backgroundService from './src/services/backgroundService';
 import { getGeoConfig } from './src/config/geoConfig';
 import { Alert } from 'react-native';
 import { ensureBgStarted } from './src/bg/trackingController';
+import { initAppStateListener, cleanupAppStateListener } from './src/services/permissionsService';
 
 export default function App() {
+  console.log('[APP] App component started');
   const [currentScreen, setCurrentScreen] = useState('login');
   const [isLoading, setIsLoading] = useState(true);
   const appState = useRef(AppState.currentState);
 
   useEffect(() => {
+    console.log('[APP] FIRST useEffect started');
+    console.log('[APP] useEffect started');
     (async () => {
+      console.log('[APP] async function started');
       try {
+        console.log('[APP] Starting initBgGeo...');
         await initBgGeo();
+        console.log('[APP] initBgGeo completed successfully');
+        
+        // Удаляем принудительную регистрацию heartbeat и ручные отправки — используем uploader BGGeo
+        
         // короткая задержка, чтобы успели подняться контексты
         setTimeout(() => ensureBgStarted("app_boot"), 1500);
-      } catch {}
+
+        // Удалён JavaScript setInterval для отправки — полагаемся на native uploader
+      } catch (error) {
+        console.log('[APP] Error in useEffect:', error?.message || error);
+      }
     })();
 
     const sub = AppState.addEventListener('change', async (next) => {
@@ -35,7 +49,13 @@ export default function App() {
       appState.current = next;
     });
 
-    return () => sub.remove();
+    // Инициализируем слушатель AppState для сброса флага диалога разрешений
+    initAppStateListener();
+    
+    return () => {
+      sub.remove();
+      cleanupAppStateListener();
+    };
   }, []);
 
   useEffect(() => {
@@ -43,7 +63,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    console.log('===== APP USEFFECT CALLED =====');
+    console.log('===== APP USEFFECT CALLED ===== MODIFIED');
     console.log('Current screen:', currentScreen);
 
     const onBackPress = () => {

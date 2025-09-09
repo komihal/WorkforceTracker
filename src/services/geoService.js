@@ -1,6 +1,6 @@
 import axios from 'axios';
 import BackgroundGeolocation from 'react-native-background-geolocation';
-import { API_CONFIG } from '../config/api';
+import { API_CONFIG, getApiTokenHeaders } from '../config/api';
 import { Platform } from 'react-native';
 import { getGeoConfig } from '../config/geoConfig';
 
@@ -56,10 +56,12 @@ class GeoService {
         api_token: API_CONFIG.API_TOKEN,
       };
 
+      console.log(`[${new Date().toLocaleTimeString()}] saveGeoData: sending`, this.geoData.length, 'point(s)');
+
       const response = await this.axiosInstance.post(
         API_CONFIG.ENDPOINTS.DB_SAVE,
         payload,
-        { headers: { 'API_TOKEN': API_CONFIG.API_TOKEN, 'Content-Type': 'application/json' } }
+        { headers: { ...getApiTokenHeaders(), 'Content-Type': 'application/json' } }
       );
 
       if (response?.data && (response.data.success === true || response.status >= 200 && response.status < 300)) {

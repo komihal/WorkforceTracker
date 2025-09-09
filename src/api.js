@@ -26,11 +26,20 @@ export async function postLocation({ lat, lon, accuracy, speed, heading, ts, bat
   console.log('postLocation: Current user:', currentUser.user_id);
 
   // Отправляем в формате, который ожидает DBSaveView согласно требованиям бекенда
+  const deviceId = await (async () => {
+    try {
+      const deviceUtils = require('./utils/deviceUtils').default;
+      return await deviceUtils.getDeviceId();
+    } catch (e) {
+      return Config.DEVICE_IMEI || 'unknown-device';
+    }
+  })();
+
   const payload = {
     api_token: 'wqHJerK834',
     user_id: currentUser.user_id,
     place_id: 1, // Исправлено: должно быть 1 согласно требованиям бекенда
-    phone_imei: Config.DEVICE_IMEI || "unknown-device", // IMEI из .env
+    phone_imei: deviceId,
     geo_array: [{
       lat: lat,
       lon: lon,
@@ -72,11 +81,20 @@ export async function postLocationBatch(locations) {
     throw new Error('Пользователь не аутентифицирован или user_id не найден');
   }
 
+  const deviceId = await (async () => {
+    try {
+      const deviceUtils = require('./utils/deviceUtils').default;
+      return await deviceUtils.getDeviceId();
+    } catch (e) {
+      return Config.DEVICE_IMEI || 'unknown-device';
+    }
+  })();
+
   const payload = {
     api_token: 'wqHJerK834',
     user_id: currentUser.user_id,
     place_id: 1, // Исправлено: должно быть 1 согласно требованиям бекенда
-    phone_imei: Config.DEVICE_IMEI || "unknown-device", // IMEI из .env
+    phone_imei: deviceId,
     geo_array: locations.map(loc => ({
       lat: loc.lat,
       lon: loc.lon,
@@ -116,10 +134,19 @@ export async function postLocationLegacy(locationData) {
       throw new Error('User not authenticated');
     }
 
+    const deviceId = await (async () => {
+      try {
+        const deviceUtils = require('./utils/deviceUtils').default;
+        return await deviceUtils.getDeviceId();
+      } catch (e) {
+        return Config.DEVICE_IMEI || 'unknown-device';
+      }
+    })();
+
     const payload = {
       user_id: currentUser.user_id,
       place_id: 1,
-      phone_imei: Config.DEVICE_IMEI || "unknown-device",
+      phone_imei: deviceId,
       geo_array: [{
         lat: locationData.lat,
         lon: locationData.lon,

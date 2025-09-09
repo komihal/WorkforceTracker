@@ -1,4 +1,4 @@
-import { Platform, Alert, AppState } from 'react-native';
+import { Platform, Alert, AppState, Linking } from 'react-native';
 import { check, request, RESULTS, PERMISSIONS, openSettings } from 'react-native-permissions';
 import { ensureBatteryOptimizationDisabled } from '../utils/batteryOptimization';
 
@@ -45,6 +45,186 @@ async function ensureIOSAlways() {
 }
 
 let bgRequestShownThisSession = false;
+
+// Функция для сброса флага показа диалога (для принудительного показа)
+export function resetBackgroundPermissionDialog() {
+  bgRequestShownThisSession = false;
+  console.log('Background permission dialog flag reset');
+}
+
+// Инициализация слушателя AppState для сброса флага при открытии приложения
+let appStateListener = null;
+
+export function initAppStateListener() {
+  if (appStateListener) {
+    return; // Уже инициализирован
+  }
+  
+  appStateListener = AppState.addEventListener('change', (nextAppState) => {
+    console.log('AppState changed to:', nextAppState);
+    
+    if (nextAppState === 'active') {
+      // Приложение стало активным - сбрасываем флаг показа диалога
+      console.log('App became active, resetting background permission dialog flag');
+      bgRequestShownThisSession = false;
+      
+      // Проверяем разрешения на уведомления при каждом открытии приложения
+      setTimeout(() => {
+        checkNotificationsPermissionOnAppActive();
+      }, 1000); // Небольшая задержка, чтобы приложение полностью загрузилось
+    }
+  });
+  
+  console.log('AppState listener initialized for background permission dialog');
+}
+
+// Функция для очистки слушателя
+export function cleanupAppStateListener() {
+  if (appStateListener) {
+    appStateListener.remove();
+    appStateListener = null;
+    console.log('AppState listener cleaned up');
+  }
+}
+
+// Функция для проверки и запроса разрешений на уведомления при каждом открытии приложения
+export async function checkNotificationsPermissionOnAppActive() {
+  try {
+    console.log('[NOTIF CHECK] Checking notifications permission on app active...');
+    
+    if (Platform.OS !== 'android' || Platform.Version < 33) {
+      console.log('[NOTIF CHECK] Notifications permission not required for this Android version');
+      return true;
+    }
+    
+    const status = await check(PERMISSIONS.ANDROID.POST_NOTIFICATIONS);
+    console.log('[NOTIF CHECK] Current POST_NOTIFICATIONS status:', status);
+    
+    if (status === RESULTS.GRANTED) {
+      console.log('[NOTIF CHECK] Notifications permission already granted');
+      return true;
+    }
+    
+    // Если разрешение не дано, показываем диалог
+    console.log('[NOTIF CHECK] Requesting POST_NOTIFICATIONS permission...');
+    const req = await request(PERMISSIONS.ANDROID.POST_NOTIFICATIONS);
+    console.log('[NOTIF CHECK] POST_NOTIFICATIONS request result:', req);
+    
+    if (req === RESULTS.GRANTED) {
+      console.log('[NOTIF CHECK] Notifications permission granted');
+      return true;
+    }
+    
+    // Если не получили разрешение, показываем диалог с настройками
+    console.log('[NOTIF CHECK] Notifications permission denied, showing settings prompt...');
+    Alert.alert(
+      'Уведомления',
+      'Для корректной работы приложения необходимо разрешение на уведомления. Это позволит видеть статус трекинга и получать важные уведомления о работе.',
+      [
+        { text: 'Открыть настройки', onPress: () => openSettings() },
+        { text: 'Позже', style: 'cancel' },
+      ],
+    );
+    return false;
+  } catch (e) {
+    console.error('[NOTIF CHECK] checkNotificationsPermissionOnAppActive error:', e);
+    return false;
+  }
+}
+
+// Функция для принудительного показа диалога фонового доступа
+export async function forceShowBackgroundPermissionDialog() {
+  if (Platform.OS !== 'android') {
+    return false;
+  }
+  
+  try {
+    console.log('Force showing background permission dialog...');
+    resetBackgroundPermissionDialog();
+    
+    const bgStatus = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+    console.log('Current ACCESS_BACKGROUND_LOCATION status:', bgStatus);
+    
+    if (bgStatus === RESULTS.GRANTED) {
+      console.log('ACCESS_BACKGROUND_LOCATION already granted');
+      return true;
+    }
+    
+    // Принудительно показываем диалог
+    console.log('Requesting ACCESS_BACKGROUND_LOCATION permission...');
+    const reqBg = await request(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+    console.log('ACCESS_BACKGROUND_LOCATION request result:', reqBg);
+    
+    if (reqBg === RESULTS.GRANTED) {
+      console.log('ACCESS_BACKGROUND_LOCATION granted');
+      return true;
+    }
+    
+    // Если не получили разрешение, показываем диалог с настройками
+    console.log('ACCESS_BACKGROUND_LOCATION permission denied, showing settings prompt...');
+    Alert.alert(
+      'Фоновая геолокация',
+      'Для корректной работы приложения необходимо разрешение на фоновую геолокацию. Это позволит приложению отслеживать ваше местоположение даже когда оно закрыто, что важно для точного учета рабочего времени.',
+      [
+        { text: 'Открыть настройки', onPress: () => openSettings() },
+        { text: 'Отмена', style: 'cancel' },
+      ],
+    );
+    return false;
+  } catch (e) {
+    console.error('forceShowBackgroundPermissionDialog error:', e);
+    return false;
+  }
+}
+
+// Быстрый поток «в 2 клика» для фоновой геолокации (Android 10+)
+export async function requestBackgroundLocationTwoClicks() {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+  try {
+    const fineStatus = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+    if (fineStatus !== RESULTS.GRANTED) {
+      const reqFine = await request(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+      if (reqFine !== RESULTS.GRANTED) {
+        Alert.alert(
+          'Геолокация',
+          'Нужно разрешить доступ к местоположению. Откройте настройки и включите доступ.',
+          [
+            { text: 'Открыть настройки', onPress: () => openSettings() },
+            { text: 'Отмена', style: 'cancel' },
+          ],
+        );
+        return false;
+      }
+    }
+
+    // Android Q+ — отдельный запрос на фон
+    if (Platform.Version >= 29) {
+      const bgStatus = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+      if (bgStatus === RESULTS.GRANTED) return true;
+
+      const reqBg = await request(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+      if (reqBg === RESULTS.GRANTED) return true;
+
+      // Заблокировано/отклонено — ведём в настройки приложения
+      Alert.alert(
+        'Фоновая геолокация',
+        'Откройте: Разрешения → Местоположение → Разрешать всегда. Это нужно для точного учёта смены.',
+        [
+          { text: 'Открыть настройки', onPress: () => openSettings() },
+          { text: 'Позже', style: 'cancel' },
+        ],
+      );
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('requestBackgroundLocationTwoClicks error:', e);
+    try { openSettings(); } catch {}
+    return false;
+  }
+}
 
 async function ensureAndroidAlways() {
   try {
