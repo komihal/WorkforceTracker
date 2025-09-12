@@ -5,7 +5,7 @@ buildscript {
         compileSdkVersion = 35
         targetSdkVersion = 35
         ndkVersion = "27.1.12297006"
-        kotlinVersion = "2.1.20"
+        kotlinVersion = "1.9.24"
     }
     repositories {
         google()
@@ -27,8 +27,18 @@ allprojects {
         google()
         mavenCentral()
         maven { url 'https://developer.huawei.com/repo/' }
+        maven { url "$rootDir/../node_modules/react-native/android" }
         // Local maven repos provided by libraries
         maven { url "$rootDir/../node_modules/react-native-background-geolocation/android/libs" }
         maven { url "$rootDir/../node_modules/react-native-background-fetch/android/libs" }
+    }
+}
+
+// Kotlin opt-in flags for React API (VisionCamera requirement on RN 0.80)
+subprojects { subproject ->
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            freeCompilerArgs += ["-Xopt-in=com.facebook.react.annotations.ReactApi"]
+        }
     }
 }

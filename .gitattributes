@@ -1,0 +1,7 @@
+# Treat logs and build artifacts as binary to avoid diff noise
+logs/* -diff
+android/*.log* -diff
+android/*logcat* -diff
+android/logcat_* -diff
+coverage/* -diff
+

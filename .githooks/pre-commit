@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+# Ensure logs are under WorkforceTracker/logs
+if git diff --cached --name-only | grep -E '\.(log|logcat|txt)$' >/dev/null 2>&1; then
+  echo "[pre-commit] Please move logs to WorkforceTracker/logs/ and re-stage."
+  git diff --cached --name-only | grep -E '\.(log|logcat|txt)$' || true
+  exit 1
+fi
+
+# Ensure markdown docs live in WorkforceTracker/docs (except README.md)
+if git diff --cached --name-only | grep -E '\.md$' | grep -vE '(^|/)README\.md$|(^|/)docs/' >/dev/null 2>&1; then
+  echo "[pre-commit] Please place docs in WorkforceTracker/docs/ (README.md excluded)."
+  git diff --cached --name-only | grep -E '\.md$' | grep -vE '(^|/)README\.md$|(^|/)docs/' || true
+  exit 1
+fi
+
+exit 0
+

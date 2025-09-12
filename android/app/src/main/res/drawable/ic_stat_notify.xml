@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="@android:color/white">
+    <!-- Простой монохромный значок для статуса уведомления (можно заменить на фирменный) -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,2A10,10 0 1,0 22,12 10,10 0 0,0 12,2ZM11,6h2v7h-2zM11,15h2v3h-2z"/>
+</vector>
+
+

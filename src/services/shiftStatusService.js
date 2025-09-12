@@ -8,11 +8,28 @@ let globalLastRun = 0;
 let globalStatusUpdateCallback = null;
 let globalUserId = null;
 
-const POLL_MIN_INTERVAL_MS = 30000; // 30s - увеличиваем интервал для снижения нагрузки
+const POLL_MIN_INTERVAL_MS = 120000; // 30s - увеличиваем интервал для снижения нагрузки
 const POLL_TIMEOUT_MS = 10000;      // timeout для запроса
 const RETRY_BACKOFF_MS = 60000;     // 60s при ошибке - увеличиваем backoff
 
 function now() { return Date.now(); }
+
+// Безопасный парсинг JSON с логированием сырого ответа
+async function readJsonSafe(response, contextLabel = 'response') {
+  try {
+    const text = await response.text();
+    try {
+      return { ok: true, data: JSON.parse(text), raw: text };
+    } catch (parseError) {
+      console.warn(`[ShiftStatus] JSON parse error in ${contextLabel}:`, parseError?.message || parseError);
+      console.warn(`[ShiftStatus] Raw ${contextLabel} body:`, (text || '').slice(0, 500));
+      return { ok: false, error: 'JSON parse error', raw: text };
+    }
+  } catch (e) {
+    console.warn(`[ShiftStatus] Failed to read body in ${contextLabel}:`, e?.message || e);
+    return { ok: false, error: 'Body read error' };
+  }
+}
 
 async function pollShiftStatusOnce(controller) {
   if (globalInFlight) return; // drop если предыдущий не завершился
@@ -36,7 +53,11 @@ async function pollShiftStatusOnce(controller) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     
-    const data = await response.json();
+    const parsed = await readJsonSafe(response, 'active-shift poll');
+    if (!parsed.ok) {
+      throw new Error(parsed.error || 'Failed to parse active-shift poll');
+    }
+    const data = parsed.data;
     console.log('[ShiftPoll] Shift status API response:', data);
     
     if (globalStatusUpdateCallback) {
@@ -155,7 +176,9 @@ class ShiftStatusManager {
       });
       
       if (response.ok) {
-        return await response.json();
+        const parsed = await readJsonSafe(response, 'active-shift getCurrentStatus');
+        if (parsed.ok) return parsed.data;
+        return { has_active_shift: false };
       }
       return { has_active_shift: false };
     } catch (error) {
@@ -164,15 +187,15 @@ class ShiftStatusManager {
     }
   }
   
-  async sendPunch(status) {
-    const timestamp = Math.floor(Date.now() / 1000);
+  async sendPunch(status, photoName, tsOverride) {
+    const timestamp = tsOverride || Math.floor(Date.now() / 1000);
     const punchData = {
       api_token: API_CONFIG.API_TOKEN,
       user_id: this.userId,
       status: status,
       timestamp: timestamp,
       phone_imei: this.deviceId,
-      photo_name: `punch_${status}_${timestamp}.jpg`
+      photo_name: photoName || `punch_${status}_${timestamp}.jpg`
     };
     
     console.log('=== SENDING PUNCH ===');
@@ -188,7 +211,12 @@ class ShiftStatusManager {
         body: JSON.stringify(punchData)
       });
       
-      const result = await response.json();
+      const parsed = await readJsonSafe(response, 'punch');
+      if (!parsed.ok) {
+        console.log('Punch response (raw, not JSON):', parsed.raw ? parsed.raw.slice(0, 500) : '');
+        return { success: false, error: parsed.error || 'Invalid server response' };
+      }
+      const result = parsed.data;
       console.log('Punch response:', result);
       
       if (result.success) {
@@ -225,3 +253,18 @@ class ShiftStatusManager {
 }
 
 export default ShiftStatusManager;
+
+// Немедленный форс-рефреш статуса смены из любого места приложения
+// Использует глобальный поллер и его callback, если он уже запущен через ShiftStatusManager
+export async function refreshShiftStatusNow(userIdOptional) {
+  try {
+    if (typeof userIdOptional === 'number' || typeof userIdOptional === 'string') {
+      globalUserId = userIdOptional;
+    }
+    // Сбрасываем троттлинг и выполняем одиночный опрос
+    globalLastRun = 0;
+    await pollShiftStatusOnce(new AbortController());
+  } catch (e) {
+    console.log('[ShiftPoll] refreshShiftStatusNow error:', e?.message || e);
+  }
+}

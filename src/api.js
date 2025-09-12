@@ -1,6 +1,7 @@
 import axios from 'axios';
 import authService from './services/authService';
 import Config from 'react-native-config';
+import { refreshShiftStatusNow } from './services/shiftStatusService';
 
 const api = axios.create({
   baseURL: 'https://api.tabelshik.com',
@@ -62,6 +63,8 @@ export async function postLocation({ lat, lon, accuracy, speed, heading, ts, bat
       } 
     });
     console.log(`[${new Date().toLocaleTimeString()}] postLocation success:`, response.status, response.data);
+    try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
+    try { await refreshShiftStatusNow(currentUser.user_id); } catch {}
     return response;
   } catch (error) {
     console.error(`[${new Date().toLocaleTimeString()}] postLocation error:`, error.message);
@@ -108,11 +111,14 @@ export async function postLocationBatch(locations) {
     })),
   };
   
-  return api.post('/api/db_save/', payload, { 
+  const response = await api.post('/api/db_save/', payload, { 
     headers: { 
       'Content-Type': 'application/json' 
     } 
   });
+  try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
+  try { await refreshShiftStatusNow(currentUser.user_id); } catch {}
+  return response;
 }
 
 // LEGACY — disabled by default
@@ -166,6 +172,9 @@ export async function postLocationLegacy(locationData) {
         'Content-Type': 'application/json' 
       } 
     });
+
+    try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
+    try { await refreshShiftStatusNow(currentUser.user_id); } catch {}
 
     return { success: true, data: response.data };
   } catch (error) {

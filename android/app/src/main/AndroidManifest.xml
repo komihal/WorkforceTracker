@@ -45,6 +45,9 @@
       android:extractNativeLibs="true">
       <!-- Transistorsoft Background Geolocation license (for native validation on Android) -->
       <meta-data android:name="com.transistorsoft.locationmanager.license" android:value="7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf"/>
+      <!-- Force smallIcon for Foreground Service notification at manifest-level -->
+      <meta-data android:name="com.transistorsoft.locationmanager.notification.SmallIcon"
+                 android:resource="@drawable/ic_stat_notify"/>
       
       <!-- OPPO/OnePlus specific metadata -->
       <meta-data android:name="RegisterAgentType" android:value="1"/>
@@ -69,6 +72,11 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+      <activity
+        android:name=".SelfieActivity"
+        android:exported="false"
+        android:screenOrientation="portrait"
+        android:theme="@style/Theme.AppCompat.NoActionBar" />
       
       <!-- BackgroundGeolocation Foreground Service -->
       <service android:name="com.transistorsoft.locationmanager.LocationManagerService"

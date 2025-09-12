@@ -17,7 +17,7 @@ class AuthService {
         user_login: userLogin,
         user_password: userPassword,
       }, {
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), 'Api-token': API_CONFIG.API_TOKEN },
       });
 
       if (response.data && response.data.success) {
@@ -29,10 +29,26 @@ class AuthService {
       }
     } catch (error) {
       console.error('Auth error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || 'Ошибка сети' 
-      };
+      const status = error?.response?.status;
+      let message = 'Ошибка сети';
+
+      if (status === 429) {
+        const retryAfterHeader = error?.response?.headers?.['retry-after'];
+        const retryAfter = parseInt(retryAfterHeader, 10);
+        message = Number.isFinite(retryAfter)
+          ? `Слишком много запросов. Повторите через ${retryAfter} сек.`
+          : 'Слишком много запросов. Попробуйте позже.';
+      } else if (status === 401 || status === 403) {
+        message = error?.response?.data?.message || 'Неверный логин или пароль';
+      } else if (typeof error?.message === 'string' && error.message.toLowerCase().includes('timeout')) {
+        message = 'Превышено время ожидания. Проверьте интернет-соединение.';
+      } else if (error?.code === 'ERR_NETWORK') {
+        message = 'Проблема с сетью. Проверьте подключение к интернету.';
+      } else if (error?.response?.data?.message) {
+        message = error.response.data.message;
+      }
+
+      return { success: false, error: message, status };
     }
   }
 

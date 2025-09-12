@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { SafeAreaView, Text, BackHandler, AppState } from 'react-native';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
+import StatsScreen from './src/components/StatsScreen';
+import BottomTabs from './src/components/BottomTabs';
 import authService from './src/services/authService';
 import punchService from './src/services/punchService';
 import deviceUtils from './src/utils/deviceUtils';
@@ -15,6 +17,7 @@ import { initAppStateListener, cleanupAppStateListener } from './src/services/pe
 export default function App() {
   console.log('[APP] App component started');
   const [currentScreen, setCurrentScreen] = useState('login');
+  const [currentTab, setCurrentTab] = useState('main');
   const [isLoading, setIsLoading] = useState(true);
   const appState = useRef(AppState.currentState);
 
@@ -199,9 +202,12 @@ export default function App() {
         return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
       case 'main':
         return (
-          <MainScreen 
-            onLogout={handleLogout}
-          />
+          <>
+            {currentTab === 'main' && <MainScreen onLogout={handleLogout} />}
+            {currentTab === 'stats' && <StatsScreen userId={null} />}
+            {/* profile tab можно подключить позже */}
+            <BottomTabs current={currentTab} onChange={setCurrentTab} />
+          </>
         );
       default:
         return <LoginScreen onLoginSuccess={handleLoginSuccess} />;

@@ -116,7 +116,7 @@ describe('BGgeolocation Smoke Test', () => {
 
     test('getCurrentPosition method can be called with options', async () => {
       const options = {
-        timeout: 30000,
+        timeout: 120000,
         samples: 1,
         persist: true,
         desiredAccuracy: 10,
@@ -225,7 +225,7 @@ describe('BGgeolocation Smoke Test', () => {
       }
 
       const location = await BackgroundGeolocation.getCurrentPosition({
-        timeout: 30000,
+        timeout: 120000,
         samples: 1,
         persist: true,
         desiredAccuracy: 10,

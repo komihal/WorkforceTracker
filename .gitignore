@@ -42,3 +42,7 @@ android/app/workforce-release.keystore
 # Coverage / Logs
 coverage/
 *.log
+logs/
+android/*.log*
+android/*logcat*
+android/logcat_*

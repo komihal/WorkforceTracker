@@ -24,8 +24,7 @@
     "react-native-config": "^1.5.0",
     "react-native-device-info": "^14.0.4",
     "react-native-image-picker": "^8.2.1",
-    "react-native-permissions": "^4.1.5",
-    "react-native-vision-camera": "^3.9.2"
+    "react-native-permissions": "^4.1.5"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
