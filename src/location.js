@@ -276,7 +276,7 @@ export async function initLocation() {
       // База
       reset: true,
       desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
-      distanceFilter: 3, // 3 метра для точного контроля на стройке
+      distanceFilter: 10, // 10 метров по требованию
       // Оставляем сервис живым и перезапускаем на boot для стабильной фоновой отправки
       stopOnTerminate: false,
       startOnBoot: true,
@@ -301,11 +301,9 @@ export async function initLocation() {
       },
       
       // Android тюнинг
-      locationUpdateInterval: 1000,
-      fastestLocationUpdateInterval: 1000,
-      stationaryRadius: 5, // Уменьшаем радиус для более частых обновлений
+      stationaryRadius: 10, // Уменьшаем радиус для более частых обновлений
       stopTimeout: 1,
-      disableElasticity: true,
+      disableElasticity: false,
       
       // Настройки сбора
       stopOnStationary: false,  // Не останавливаем трекинг при остановке
@@ -315,6 +313,7 @@ export async function initLocation() {
       // Нативный uploader с батчингом
       autoSync: true,
       batchSync: true,
+      autoSyncThreshold: 25,
       url: 'https://api.tabelshik.com/api/db_save/',
       httpTimeout: 60000,
       maxRecordsToPersist: 10000,
@@ -399,7 +398,7 @@ export async function initLocation() {
     console.log('[BG] Applying post-ready timing config');
     await BGGeo.setConfig({
       heartbeatInterval: 120,
-      distanceFilter: 3,
+      distanceFilter: 10,
       maxRecordsToPersist: 10000
     });
     console.log('[BG] Post-ready timing config applied');
@@ -512,9 +511,18 @@ export async function initLocation() {
       console.log('✅  Started in foreground');
     });
     
-    BGGeo.onConnectivityChange(ev => {
+    BGGeo.onConnectivityChange(async (ev) => {
       console.log('[BG][connectivity]', ev.connected);
       console.log('🔵  Connectivity change:', ev.connected);
+      // При восстановлении сети инициируем немедленный sync накопленных точек
+      if (ev.connected) {
+        try {
+          await BGGeo.sync();
+          console.log('[BG][connectivity] sync() triggered');
+        } catch (e) {
+          console.log('[BG][connectivity] sync error:', String(e?.message || e));
+        }
+      }
     });
     
     // Обработка изменений авторизации (более специфично для Transistorsoft)
@@ -540,6 +548,13 @@ export async function initLocation() {
           maximumAge: 0
         });
         console.log('[BG][heartbeat] persisted location:', loc?.coords?.latitude, loc?.coords?.longitude);
+        // Сразу после persist пытаемся синхронизировать накопленные точки
+        try {
+          await BGGeo.sync();
+          console.log('[BG][heartbeat] sync() triggered');
+        } catch (e) {
+          console.log('[BG][heartbeat] sync error:', String(e?.message || e));
+        }
       } catch (e) {
         console.log('[BG][heartbeat] getCurrentPosition error:', String(e?.message || e));
       }
@@ -620,7 +635,7 @@ export async function startTracking(userId) {
     // База
     reset: true,
     desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
-    distanceFilter: 3, // 3 метра для точного контроля на стройке
+    distanceFilter: 10, // 10 метров по требованию
     stopOnTerminate: false,
     startOnBoot: true,
     enableHeadless: true,
@@ -637,11 +652,9 @@ export async function startTracking(userId) {
     },
     
     // Android тюнинг
-    locationUpdateInterval: 1000,
-    fastestLocationUpdateInterval: 1000,
-    stationaryRadius: 5, // Уменьшаем радиус для более частых обновлений
-    stopTimeout: 1,
-    disableElasticity: true,
+    stationaryRadius: 10, // Уменьшаем радиус для более частых обновлений
+    stopTimeout: 300,
+    disableElasticity: false,
     heartbeatInterval: 120, // 2 минуты для периодической отправки
     
     // Настройки для отправки каждые 2 минуты при отсутствии активности
@@ -651,9 +664,10 @@ export async function startTracking(userId) {
     // Нативный uploader
     autoSync: true,
     batchSync: true,
+    autoSyncThreshold: 25,
     url: 'https://api.tabelshik.com/api/db_save/',
     httpTimeout: 60000,
-    maxRecordsToPersist: 1000,
+    maxRecordsToPersist: 10000,
     method: 'POST',
     httpRootProperty: "geo_array",
     
@@ -703,7 +717,7 @@ export async function startTracking(userId) {
   console.log('[BG] Force applying 2-minute heartbeat config in startTracking()');
   await BGGeo.setConfig({
     heartbeatInterval: 120,
-    distanceFilter: 3
+    distanceFilter: 10
   });
   console.log('[BG] 2-minute heartbeat config applied in startTracking()');
   
@@ -731,15 +745,8 @@ export async function startTracking(userId) {
     isStartingTracking = false;
   }
 
-  // Форсируем вход в движение на Android, чтобы спровоцировать onLocation
+  // Не форсируем движение вручную: позволяем SDK самому определить motionchange
   if (Platform.OS === 'android') {
-    try {
-      await BGGeo.changePace(true);
-      logNative('[TRACK] changePace(true) after start');
-    } catch (e) {
-      logNative('[TRACK] changePace error', { err: String(e) });
-    }
-    // Дополнительно затребуем текущую позицию и сохраним её
     try {
       const loc = await BGGeo.getCurrentPosition({
         samples: 1,

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">СтройЛокатор</string>
+    <string name="app_name">ЛокаторРабочих</string>
+    <string name="action_settings">Настройки</string>
+    <string name="shortcut_open_short_label">Открыть</string>
+    <string name="shortcut_open_long_label">Открыть ЛокаторРабочих</string>
 </resources>
 
 

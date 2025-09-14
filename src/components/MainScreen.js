@@ -31,13 +31,16 @@ import ShiftStatusManager from '../services/shiftStatusService';
 // import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
 // geo endpoint/test toggles removed
 // DebugBgScreen and BgGeoTestScreen removed - no longer needed
+import { useShiftStore, setFromServer } from '../store/shiftStore';
+import { guardedAlert } from '../ui/alert';
 
 const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showAlwaysBanner, setShowAlwaysBanner] = useState(false);
-  const [isShiftActive, setIsShiftActive] = useState(false);
+  const isShiftActive = useShiftStore(s => s.isActive);
   const [currentUser, setCurrentUser] = useState(null);
   const [userStatus, setUserStatus] = useState(WorkerStatus.READY_TO_WORK);
+  const currentUserIdRef = useRef(null);
   // endpoint & test toggles removed
   const [shiftStatusManager, setShiftStatusManager] = useState(null);
   const [indicators, setIndicators] = useState({ gps: false, network: false, battery: true, permission: false, notifications: true });
@@ -89,6 +92,7 @@ const MainScreen = ({ onLogout }) => {
       if (user) {
         console.log('Loaded currentUser:', user);
         setCurrentUser(user);
+        currentUserIdRef.current = user.user_id;
         
         // Инициализируем ShiftStatusManager
         const deviceId = await deviceUtils.getDeviceId();
@@ -114,6 +118,7 @@ const MainScreen = ({ onLogout }) => {
         manager.setStatusUpdateCallback(async (data) => {
           console.log('=== SHIFT STATUS UPDATE ===');
           console.log('Received data:', data);
+          try { setFromServer(data); } catch {}
           
           const hasActiveShift = data.has_active_shift || false;
           const workerStatus = (data?.worker?.worker_status) || data?.worker_status || 'активен';
@@ -133,12 +138,13 @@ const MainScreen = ({ onLogout }) => {
              setLastRequestAt(lrServer || null);
           } catch {}
           
-          setIsShiftActive(hasActiveShift);
           setUserStatus(normalizeStatus(workerStatus));
           
           console.log('Updated state:', {
             isShiftActive: hasActiveShift,
-            userStatus: workerStatus
+            userStatus: workerStatus,
+            activeShiftId: data?.active_shift?.id || data?.active_shift?.shift_id || null,
+            sourceOfTruth: 'server'
           });
           
           // Автоматически запускаем/останавливаем отслеживание геолокации
@@ -201,14 +207,47 @@ const MainScreen = ({ onLogout }) => {
     // Инициализация геолокации отключена - происходит только при входе в приложение
     console.log('Location initialization disabled in MainScreen - handled by App.js on login');
     
-    // Отслеживаем AppState для баннера Always
+    // Отслеживаем AppState для баннера Always + fast refresh с мьютексом
+    let _refreshInflight = false;
+    const safeRefresh = async (uid, reqId) => {
+      if (_refreshInflight) {
+        console.log('[Shift] safeRefresh: skip (inflight), reqId=', reqId);
+        return;
+      }
+      _refreshInflight = true;
+      try {
+        console.log('[Shift] safeRefresh start, reqId=', reqId);
+        const { refreshShiftStatusNow } = require('../services/shiftStatusService');
+        await refreshShiftStatusNow(uid);
+        console.log('[Shift] safeRefresh done, reqId=', reqId);
+      } catch (e) {
+        console.log('[Shift] safeRefresh failed, reqId=', reqId, e?.message || e);
+      } finally {
+        _refreshInflight = false;
+      }
+    };
+
     const sub = AppState.addEventListener('change', async (state) => {
-      if (state === 'active' && Platform.OS === 'android') {
-        try {
-          const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
-          const bg = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
-          setShowAlwaysBanner(bg !== RESULTS.GRANTED);
-        } catch {}
+      console.log('[AppState] MainScreen ->', state);
+      if (state === 'active') {
+        let uid = currentUserIdRef.current;
+        if (!uid) {
+          try {
+            uid = (await authService.getCurrentUser())?.user_id;
+            if (uid) currentUserIdRef.current = uid;
+          } catch {}
+        }
+        if (uid) {
+          const reqId = Math.random().toString(36).slice(2, 8);
+          await safeRefresh(uid, reqId);
+        }
+        if (Platform.OS === 'android') {
+          try {
+            const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
+            const bg = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+            setShowAlwaysBanner(bg !== RESULTS.GRANTED);
+          } catch {}
+        }
       }
     });
 
@@ -632,6 +671,19 @@ const MainScreen = ({ onLogout }) => {
   // (dev test functions removed)
 
 
+  // Показ количества накопленных точек BGGeo
+  const handleShowQueuedPoints = async () => {
+    try {
+      const BackgroundGeolocation = require('react-native-background-geolocation');
+      const BGGeo = BackgroundGeolocation.default || BackgroundGeolocation;
+      const count = await BGGeo.getCount();
+      Alert.alert('Накопленные точки', String(count));
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось получить количество точек');
+    }
+  };
+
+
 
   // Функция для запроса игнорирования оптимизации батареи (с guard)
   const requestBatteryOptimization = useCallback(async () => {
@@ -655,33 +707,38 @@ const MainScreen = ({ onLogout }) => {
   // Выход из системы
   const handleLogout = async () => {
     console.log('=== HANDLE LOGOUT CALLED ===');
-    console.log('isShiftActive:', isShiftActive);
+    console.log('isShiftActive (store):', isShiftActive);
     console.log('currentUser:', currentUser);
     
     try {
-      // Проверяем, активна ли смена
-      if (isShiftActive) {
+      // Перепроверяем при необходимости (без сброса при сетевой ошибке)
+      let effectiveActive = !!isShiftActive;
+      if (!effectiveActive && currentUser?.user_id) {
+        try {
+          console.log('[Shift] Verifying active shift before logout...');
+          const res = await punchService.getShiftStatus(currentUser.user_id);
+          effectiveActive = !!res?.success && !!res.data?.has_active_shift;
+          console.log('[Shift] Verify result:', effectiveActive);
+        } catch (e) {
+          console.log('[Shift] Verify failed, keep current store value. Reason:', e?.message || e);
+        }
+      }
+
+      if (effectiveActive) {
         console.log('Showing shift interruption alert...');
-        Alert.alert(
+        guardedAlert(
           'Прерывание смены',
           'У вас активна смена. Вы уверены, что хотите прервать смену и выйти из системы?',
           [
-            {
-              text: 'Отмена',
-              style: 'cancel',
-            },
+            { text: 'Отмена', style: 'cancel' },
             {
               text: 'Прервать смену и выйти',
               style: 'destructive',
               onPress: async () => {
                 try {
                   console.log('User confirmed shift interruption and logout');
-                  
-                  // Автоматически закрываем смену без фото
                   if (currentUser && currentUser.user_id) {
                     console.log('Auto-closing shift before logout...');
-                    
-                    // Останавливаем отслеживание геолокации
                     try {
                       const { stopTracking } = require('../location.js');
                       await stopTracking();
@@ -689,11 +746,8 @@ const MainScreen = ({ onLogout }) => {
                     } catch (e) {
                       console.error('Failed to stop tracking before logout:', e?.message || e);
                     }
-                    
-                    // Автоматически закрываем смену
                     const phoneImei = await deviceUtils.getDeviceId();
                     const autoPunchResult = await punchService.autoPunchOut(currentUser.user_id, phoneImei);
-                    
                     if (autoPunchResult.success) {
                       console.log('Shift auto-closed successfully before logout');
                       Alert.alert('Смена прервана', 'Смена была автоматически закрыта');
@@ -702,8 +756,6 @@ const MainScreen = ({ onLogout }) => {
                       Alert.alert('Предупреждение', 'Не удалось закрыть смену автоматически. Обратитесь к администратору.');
                     }
                   }
-                  
-                  // Выходим из системы
                   await authService.logout();
                   onLogout();
                 } catch (error) {
@@ -715,7 +767,6 @@ const MainScreen = ({ onLogout }) => {
           ]
         );
       } else {
-        // Если смена не активна, просто выходим
         await authService.logout();
         onLogout();
       }
@@ -1071,6 +1122,17 @@ const MainScreen = ({ onLogout }) => {
           ) : (
             <View />
           )}
+        </View>
+
+        {/* Кнопка показа количества накопленных точек под блоком смены */}
+        <View style={{ marginBottom: 16 }}>
+          <TouchableOpacity
+            style={[styles.button, styles.queuedButton]}
+            onPress={handleShowQueuedPoints}
+            accessibilityLabel="Показать количество накопленных точек"
+          >
+            <Text style={styles.buttonText}>Накопленные точки</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Кнопка выхода перенесена в шапку */}

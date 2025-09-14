@@ -35,6 +35,7 @@
             <option value="$PROJECT_DIR$/../node_modules/react-native-background-fetch/android" />
             <option value="$PROJECT_DIR$/../node_modules/react-native-background-geolocation/android" />
             <option value="$PROJECT_DIR$/../node_modules/react-native-config/android" />
+            <option value="$PROJECT_DIR$/../node_modules/react-native-device-info/android" />
             <option value="$PROJECT_DIR$/../node_modules/react-native-image-picker/android" />
             <option value="$PROJECT_DIR$/../node_modules/react-native-permissions/android" />
           </set>

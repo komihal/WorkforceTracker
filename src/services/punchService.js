@@ -1,6 +1,10 @@
 import axios from 'axios';
 import { API_CONFIG, getApiTokenHeaders } from '../config/api';
 
+function genIdemp() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 class PunchService {
   constructor() {
     this.axiosInstance = axios.create({
@@ -12,6 +16,7 @@ class PunchService {
   async punchIn(userId, phoneImei, photoName) {
     try {
       const timestamp = Math.floor(Date.now() / 1000);
+      const idk = genIdemp();
       
       const response = await this.axiosInstance.post(API_CONFIG.ENDPOINTS.PUNCH, {
         api_token: API_CONFIG.API_TOKEN,
@@ -21,7 +26,7 @@ class PunchService {
         phone_imei: phoneImei,
         photo_name: photoName,
       }, {
-        headers: getApiTokenHeaders(),
+        headers: { ...getApiTokenHeaders(), 'Idempotency-Key': idk },
       });
 
       if (response.data && response.data.success) {
@@ -95,6 +100,7 @@ class PunchService {
   async punchOut(userId, phoneImei, photoName) {
     try {
       const timestamp = Math.floor(Date.now() / 1000);
+      const idk = genIdemp();
       
       const response = await this.axiosInstance.post(API_CONFIG.ENDPOINTS.PUNCH, {
         api_token: API_CONFIG.API_TOKEN,
@@ -104,7 +110,7 @@ class PunchService {
         phone_imei: phoneImei,
         photo_name: photoName,
       }, {
-        headers: getApiTokenHeaders(),
+        headers: { ...getApiTokenHeaders(), 'Idempotency-Key': idk },
       });
 
       if (response.data && response.data.success) {
@@ -180,6 +186,7 @@ class PunchService {
   async autoPunchOut(userId, phoneImei) {
     try {
       const timestamp = Math.floor(Date.now() / 1000);
+      const idk = genIdemp();
       
       console.log('=== AUTO PUNCH OUT ===');
       console.log('Auto-closing shift for user_id:', userId);
@@ -193,7 +200,7 @@ class PunchService {
         phone_imei: phoneImei,
         photo_name: 'auto_close_' + timestamp + '.jpg', // Автоматическое имя фото
       }, {
-        headers: getApiTokenHeaders(),
+        headers: { ...getApiTokenHeaders(), 'Idempotency-Key': idk },
       });
 
       console.log('Auto punch out response:', JSON.stringify(response.data, null, 2));

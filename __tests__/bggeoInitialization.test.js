@@ -160,7 +160,7 @@ describe('BGgeolocation Initialization', () => {
         method: 'POST',
         autoSync: true,
         batchSync: true,
-        maxBatchSize: 20,
+        maxBatchSize: 50,
         headers: { 'API_TOKEN': 'test-token', 'Content-Type': 'application/json' },
         debug: false, // __DEV__ is false in test
         logLevel: mockBackgroundGeolocation.LOG_LEVEL_INFO,
@@ -282,8 +282,8 @@ describe('BGgeolocation Initialization', () => {
     test('posts location when API is configured', async () => {
       const mockLocation = {
         coords: {
-          latitude: 55.7558,
-          longitude: 37.6176,
+          latitude: 55.9999,
+          longitude: 37.9999,
           accuracy: 10,
           speed: 0,
           heading: 0,

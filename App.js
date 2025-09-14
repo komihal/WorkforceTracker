@@ -13,6 +13,8 @@ import { getGeoConfig } from './src/config/geoConfig';
 import { Alert } from 'react-native';
 import { ensureBgStarted } from './src/bg/trackingController';
 import { initAppStateListener, cleanupAppStateListener } from './src/services/permissionsService';
+import { useShiftStore, initShiftStore } from './src/store/shiftStore';
+import { guardedAlert } from './src/ui/alert';
 
 export default function App() {
   console.log('[APP] App component started');
@@ -20,6 +22,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState('main');
   const [isLoading, setIsLoading] = useState(true);
   const appState = useRef(AppState.currentState);
+  const hasActive = useShiftStore(s => s.isActive);
 
   useEffect(() => {
     console.log('[APP] FIRST useEffect started');
@@ -63,6 +66,8 @@ export default function App() {
 
   useEffect(() => {
     checkAuthStatus();
+    // Гидратация стора смены на старте
+    initShiftStore().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -70,13 +75,21 @@ export default function App() {
     console.log('Current screen:', currentScreen);
 
     const onBackPress = () => {
-      // Для экранам 'main' и 'login' используем поведение по умолчанию (выход из приложения)
+      try {
+        if (currentScreen === 'main' && hasActive) {
+          console.log('[BackHandler] Blocked due to active shift (store)');
+          guardedAlert('Смена активна', 'Закройте смену перед выходом из приложения.', [
+            { text: 'Остаться', style: 'cancel' },
+          ]);
+          return true;
+        }
+      } catch {}
       return false;
     };
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => subscription.remove();
-  }, [currentScreen]);
+  }, [currentScreen, hasActive]);
 
   // Обработчик состояния приложения для автоматического закрытия смены
   useEffect(() => {

@@ -93,6 +93,12 @@ if (keystorePropertiesFile.exists()) {
 android {
     ndkVersion rootProject.ext.ndkVersion
     compileSdk rootProject.ext.compileSdkVersion
+    
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 
     namespace "com.workforcetracker"
     buildFeatures {

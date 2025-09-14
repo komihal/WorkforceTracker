@@ -11,6 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   ScrollView,
+  Image,
 } from 'react-native';
 import authService from '../services/authService';
 // permissions test removed
@@ -76,9 +77,16 @@ const LoginScreen = ({ onLoginSuccess }) => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
+        {/* Тёмная полоса под статус-баром (как на главном экране) */}
+        <View style={styles.statusBarStripAbsolute} />
+        <View style={styles.statusBarSpacer} />
         <View style={styles.headerArea}>
-          <View style={styles.logo}>
-            <Text style={styles.logoLetter}>С</Text>
+          <View style={styles.logoTransparent}>
+            <Image
+              source={{ uri: 'ic_logo' }}
+              style={styles.logoImageLarge}
+              resizeMode="contain"
+            />
           </View>
           <Text style={styles.appName}>Смена</Text>
           <Text style={styles.subtitle}>Вход в систему</Text>
@@ -165,6 +173,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  statusBarSpacer: {
+    height: Platform.OS === 'ios' ? 16 : 24,
+  },
+  statusBarStripAbsolute: {
+    position: 'absolute',
+    top: -80,
+    left: -1000,
+    right: -1000,
+    height: Platform.OS === 'ios' ? 160 : 120,
+    backgroundColor: '#1f1f1f',
+    zIndex: 0,
+  },
   flex: {
     flex: 1,
   },
@@ -173,19 +193,17 @@ const styles = StyleSheet.create({
     paddingTop: 76,
     paddingBottom: 8,
   },
-  logo: {
+  logoTransparent: {
     width: 72,
     height: 72,
-    borderRadius: 36,
-    backgroundColor: '#007AFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+  },
+  logoImageLarge: {
+    width: 90,
+    height: 90,
+    resizeMode: 'contain',
   },
   logoLetter: {
     color: '#fff',

@@ -32,10 +32,25 @@ const HeadlessTask = async (event) => {
       } catch (e) {
         console.log("[BG HEADLESS] getCurrentPosition error:", e.message);
       }
+      // Триггерим синхронизацию сразу после heartbeat
+      try {
+        await BackgroundGeolocation.sync();
+        console.log("[BG HEADLESS] sync() triggered after heartbeat");
+      } catch (e) {
+        console.log("[BG HEADLESS] sync error after heartbeat:", e.message);
+      }
       break;
       
     case "connectivitychange":
       console.log("[BG HEADLESS] Connectivity changed:", event.params.connected);
+      if (event.params.connected) {
+        try {
+          await BackgroundGeolocation.sync();
+          console.log("[BG HEADLESS] sync() triggered after connectivity restore");
+        } catch (e) {
+          console.log("[BG HEADLESS] sync error after connectivity:", e.message);
+        }
+      }
       break;
       
     case "motionchange":
