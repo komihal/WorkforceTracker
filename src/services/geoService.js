@@ -42,6 +42,35 @@ class GeoService {
     return geoPoint;
   }
 
+  // Функция для получения точных данных о высоте
+  getAccurateAltitudeData(location) {
+    const coords = location.coords || location;
+    
+    // Проверяем доступность данных о высоте
+    const hasAltitude = coords.altitude !== null && 
+                      coords.altitude !== undefined && 
+                      !isNaN(coords.altitude) && 
+                      coords.altitude !== 0;
+    
+    const hasAltitudeMSL = coords.altitude_msl !== null && 
+                          coords.altitude_msl !== undefined && 
+                          !isNaN(coords.altitude_msl) && 
+                          coords.altitude_msl !== 0;
+    
+    // Определяем точность MSL
+    const accuracy = coords.accuracy || 0;
+    const hasMSLAccuracy = hasAltitudeMSL && accuracy < 5;
+    
+    return {
+      alt: hasAltitude ? coords.altitude : 0,
+      altmsl: hasAltitudeMSL ? coords.altitude_msl : (hasAltitude ? coords.altitude : 0),
+      hasalt: hasAltitude,
+      hasaltmsl: hasAltitudeMSL,
+      hasaltmslaccuracy: hasMSLAccuracy,
+      mslaccuracyMeters: accuracy
+    };
+  }
+
   // Отправка геоданных на сервер
   async saveGeoData(userId, placeId, phoneImei) {
     try {
@@ -141,6 +170,7 @@ class GeoService {
         latitude: c.latitude,
         longitude: c.longitude,
         altitude: c.altitude,
+        altitude_msl: c.altitude_msl,
         accuracy: c.accuracy,
       };
       

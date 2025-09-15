@@ -483,15 +483,25 @@ const MainScreen = ({ onLogout }) => {
 
       // Добавляем геопозицию с правильным порядком параметров
       console.log('Adding geo point for punch in:', location);
+      
+      // Отладочное логирование для проверки данных о высоте
+      console.log('=== ALTITUDE DEBUG ===');
+      console.log('location.altitude:', location.altitude);
+      console.log('location.altitude_msl:', location.altitude_msl);
+      console.log('location.accuracy:', location.accuracy);
+      console.log('=== END DEBUG ===');
+
+      // Получаем точные данные о высоте
+      const altitudeData = geoService.getAccurateAltitudeData(location);
       const geoPoint = geoService.addGeoPoint(
         location.latitude,    // lat
         location.longitude,   // lon
-        location.altitude || 0,  // alt
-        (typeof location.altitude_msl === 'number' ? location.altitude_msl : (location.altitude || 0)),  // altMsl
-        true,                 // hasAlt
-        true,                 // hasAltMsl
-        false,                // hasAltMslAccuracy
-        1.5                   // mslAccuracyMeters
+        altitudeData.alt,     // alt
+        altitudeData.altmsl,  // altMsl
+        altitudeData.hasalt,  // hasAlt
+        altitudeData.hasaltmsl, // hasAltMsl
+        altitudeData.hasaltmslaccuracy, // hasAltMslAccuracy
+        altitudeData.mslaccuracyMeters  // mslAccuracyMeters
       );
       console.log('Added geo point for punch in:', geoPoint);
 
@@ -630,15 +640,26 @@ const MainScreen = ({ onLogout }) => {
 
       // Добавляем финальную геопозицию с правильным порядком параметров
       console.log('Adding geo point for punch out:', location);
+
+      // Получаем точные данные о высоте
+      const altitudeData = geoService.getAccurateAltitudeData(location);
+      
+      // Отладочное логирование для проверки данных о высоте
+      console.log('=== ALTITUDE DEBUG ===');
+      console.log('location.altitude:', location.altitude);
+      console.log('location.altitude_msl:', location.altitude_msl);
+      console.log('location.accuracy:', location.accuracy);
+      console.log('=== END DEBUG ===');
+
       const geoPoint = geoService.addGeoPoint(
         location.latitude,    // lat
         location.longitude,   // lon
-        location.altitude || 0,  // alt
-        (typeof location.altitude_msl === 'number' ? location.altitude_msl : (location.altitude || 0)),  // altMsl
-        true,                 // hasAlt
-        true,                 // hasAltMsl
-        false,                // hasAltMslAccuracy
-        1.5                   // mslAccuracyMeters
+        altitudeData.alt,     // alt
+        altitudeData.altmsl,  // altMsl
+        altitudeData.hasalt,  // hasAlt
+        altitudeData.hasaltmsl, // hasAltMsl
+        altitudeData.hasaltmslaccuracy, // hasAltMslAccuracy
+        altitudeData.mslaccuracyMeters  // mslAccuracyMeters
       );
       console.log('Added geo point for punch out:', geoPoint);
 
