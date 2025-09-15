@@ -291,7 +291,9 @@ export async function initLocation() {
         channelName: "Tracking",
         smallIcon: "ic_stat_notify",
         priority: BGGeo.NOTIFICATION_PRIORITY_LOW,
-        sticky: true
+        sticky: true,
+        sound: null,  // Отключаем звук уведомления
+        vibrate: false  // Отключаем вибрацию
       },
       
       // Background Permission Rationale (Android 10+) - для запроса "Allow all the time"
@@ -332,8 +334,8 @@ export async function initLocation() {
       },
       locationTemplate: createLocationTemplate(),
 
-      debug: true,
-      logLevel: BGGeo.LOG_LEVEL_VERBOSE,
+      debug: __DEV__, // Включаем debug только в dev режиме
+      logLevel: __DEV__ ? BGGeo.LOG_LEVEL_VERBOSE : BGGeo.LOG_LEVEL_ERROR, // Минимальное логирование в релизе
       license,
     };
     
@@ -646,7 +648,9 @@ export async function startTracking(userId) {
       channelName: "Tracking",
       smallIcon: "ic_stat_notify",
       priority: BGGeo.NOTIFICATION_PRIORITY_LOW,
-      sticky: true
+      sticky: true,
+      sound: null,  // Отключаем звук уведомления
+      vibrate: false  // Отключаем вибрацию
     },
     
     // Android тюнинг
@@ -682,8 +686,8 @@ export async function startTracking(userId) {
       'Api-token': 'wqHJerK834'
     },
     
-    debug: true,
-    logLevel: BGGeo.LOG_LEVEL_VERBOSE,
+    debug: __DEV__, // Включаем debug только в dev режиме
+    logLevel: __DEV__ ? BGGeo.LOG_LEVEL_VERBOSE : BGGeo.LOG_LEVEL_ERROR, // Минимальное логирование в релизе
     license: getLicenseInfo().license,
   };
   
