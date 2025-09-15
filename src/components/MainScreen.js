@@ -791,6 +791,20 @@ const MainScreen = ({ onLogout }) => {
                       console.error('Failed to stop tracking before logout:', e?.message || e);
                     }
                     const phoneImei = await deviceUtils.getDeviceId();
+                    
+                    // Сохраняем все накопленные геоданные перед выходом
+                    try {
+                      console.log('Saving accumulated geo data before logout...');
+                      const geoResult = await geoService.saveGeoData(currentUser.user_id, 1, phoneImei);
+                      if (geoResult.success) {
+                        console.log('Geo data saved successfully before logout');
+                      } else {
+                        console.log('Failed to save geo data before logout:', geoResult.error);
+                      }
+                    } catch (e) {
+                      console.error('Error saving geo data before logout:', e?.message || e);
+                    }
+                    
                     const autoPunchResult = await punchService.autoPunchOut(currentUser.user_id, phoneImei);
                     if (autoPunchResult.success) {
                       console.log('Shift auto-closed successfully before logout');
@@ -811,6 +825,22 @@ const MainScreen = ({ onLogout }) => {
           ]
         );
       } else {
+        // Сохраняем накопленные геоданные даже если нет активной смены
+        if (currentUser && currentUser.user_id) {
+          try {
+            console.log('Saving accumulated geo data before logout (no active shift)...');
+            const phoneImei = await deviceUtils.getDeviceId();
+            const geoResult = await geoService.saveGeoData(currentUser.user_id, 1, phoneImei);
+            if (geoResult.success) {
+              console.log('Geo data saved successfully before logout (no active shift)');
+            } else {
+              console.log('Failed to save geo data before logout (no active shift):', geoResult.error);
+            }
+          } catch (e) {
+            console.error('Error saving geo data before logout (no active shift):', e?.message || e);
+          }
+        }
+        
         await authService.logout();
         onLogout();
       }
@@ -984,13 +1014,13 @@ const MainScreen = ({ onLogout }) => {
         {/* Badges теперь показываются через глаз в шапке пользователя */}
 
         {/* Модалка меню (три точки) */}
-        <Modal visible={menuModalVisible} transparent animationType="none" onRequestClose={() => setMenuModalVisible(false)}>
-          <View pointerEvents="box-none" style={styles.modalOverlayNoShade}>
+        <Modal visible={menuModalVisible} transparent animationType="fade" onRequestClose={() => setMenuModalVisible(false)}>
+          <View style={styles.logoutModalOverlay}>
             <TouchableOpacity style={styles.fill} activeOpacity={1} onPress={() => setMenuModalVisible(false)} />
-            <View style={[styles.menuDropdown, { top: 72, right: 24 }]}
+            <View style={[styles.menuDropdown, { top: 64, right: 24 }]}
               pointerEvents="box-none">
               <TouchableOpacity style={[styles.button, styles.logoutDropdownButton]} onPress={() => { setMenuModalVisible(false); handleLogout(); }}>
-                <Text style={styles.logoutDropdownLabel}>Выйти</Text>
+                <Text style={styles.logoutDropdownLabel}>Выйти из системы</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1241,7 +1271,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 72, // немного выше таб-бара
+    bottom: 40, // немного выше таб-бара
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -1458,6 +1488,14 @@ const styles = StyleSheet.create({
   modalOverlayNoShade: {
     flex: 1,
     backgroundColor: 'transparent',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 96,
+    paddingRight: 12,
+  },
+  logoutModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
     paddingTop: 96,
