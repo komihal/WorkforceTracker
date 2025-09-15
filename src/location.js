@@ -252,7 +252,7 @@ export async function initLocation() {
       mode: __DEV__ ? 'TEST' : 'PRODUCTION',
       distanceFilter: geoConfig.DISTANCE_FILTER,
       heartbeatInterval: 120, // 2 минуты = 120 секунд для регулярной отправки геолокации
-      stopTimeout: geoConfig.STOP_TIMEOUT,
+      stopTimeout: 'default (5s)', // Используется значение по умолчанию
       license: currentLicense ? 'Present' : 'Missing'
     });
   console.log('[BG] HEARTBEAT_INTERVAL from geoConfig:', geoConfig.HEARTBEAT_INTERVAL);
@@ -269,6 +269,7 @@ export async function initLocation() {
     console.log('[BG] Using Transistorsoft canonical configuration');
     
     // Определяем каноническую конфигурацию согласно документации Transistorsoft
+    // stopTimeout убран - используется значение по умолчанию (5 секунд)
     console.log('[BG] Creating canonical config...');
     console.log('[BG] Starting CANONICAL_CONFIG creation...');
     
@@ -302,7 +303,6 @@ export async function initLocation() {
       
       // Android тюнинг
       stationaryRadius: 10, // Уменьшаем радиус для более частых обновлений
-      stopTimeout: 1,
       disableElasticity: false,
       
       // Настройки сбора
@@ -631,15 +631,18 @@ export async function startTracking(userId) {
     console.log('[BG] Reset error before startTracking:', e);
   }
   
+  // Конфигурация с привязкой к пользователю
+  // stopTimeout убран - используется значение по умолчанию (5 секунд)
   const CANONICAL_CONFIG_WITH_USER = {
     // База
     reset: true,
     desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
     distanceFilter: 10, // 10 метров по требованию
-    stopOnTerminate: false,
-    startOnBoot: true,
-    enableHeadless: true,
-    foregroundService: true,
+    stopOnTerminate: false,  // ← Сервис не останавливается при закрытии приложения
+    startOnBoot: true,       // ← Автоматически запускается при загрузке устройства
+    enableHeadless: true,    // ← Работает в headless режиме
+    foregroundService: true, // ← Показывает уведомление о работе в фоне
+  
     
     // Уведомление foreground-сервиса (Android O+)
     notification: {
@@ -653,7 +656,6 @@ export async function startTracking(userId) {
     
     // Android тюнинг
     stationaryRadius: 10, // Уменьшаем радиус для более частых обновлений
-    stopTimeout: 300,
     disableElasticity: false,
     heartbeatInterval: 120, // 2 минуты для периодической отправки
     
