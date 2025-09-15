@@ -1,18 +1,4 @@
 import { API_CONFIG } from '../config/api';
-// import { fetchWithTimeout } from '../utils/net';
-
-// Single-instance поллер для всего приложения
-let globalPollTimer = null;
-let globalInFlight = false;
-let globalLastRun = 0;
-let globalStatusUpdateCallback = null;
-let globalUserId = null;
-
-const POLL_MIN_INTERVAL_MS = 120000; // 30s - увеличиваем интервал для снижения нагрузки
-const POLL_TIMEOUT_MS = 10000;      // timeout для запроса
-const RETRY_BACKOFF_MS = 60000;     // 60s при ошибке - увеличиваем backoff
-
-function now() { return Date.now(); }
 
 // Безопасный парсинг JSON с логированием сырого ответа
 async function readJsonSafe(response, contextLabel = 'response') {
@@ -31,121 +17,40 @@ async function readJsonSafe(response, contextLabel = 'response') {
   }
 }
 
-async function pollShiftStatusOnce(controller) {
-  if (globalInFlight) return; // drop если предыдущий не завершился
-  const t = now();
-  if (t - globalLastRun < POLL_MIN_INTERVAL_MS) return; // троттлинг
-  globalInFlight = true;
-  globalLastRun = t;
-  try {
-    console.log('[ShiftPoll] Fetching status...');
-    const response = await fetch(
-      `${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${globalUserId}&api_token=${API_CONFIG.API_TOKEN}`, 
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Api-token': API_CONFIG.API_TOKEN,
-        },
-      }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const parsed = await readJsonSafe(response, 'active-shift poll');
-    if (!parsed.ok) {
-      throw new Error(parsed.error || 'Failed to parse active-shift poll');
-    }
-    const data = parsed.data;
-    console.log('[ShiftPoll] Shift status API response:', data);
-    
-    if (globalStatusUpdateCallback) {
-      globalStatusUpdateCallback(data);
-    }
-  } catch (e) {
-    console.log('[ShiftPoll] error → backoff', e?.message || e);
-    // при ошибке — поднимем «паузу» до backoff
-    globalLastRun = now() - (POLL_MIN_INTERVAL_MS - RETRY_BACKOFF_MS);
-  } finally {
-    globalInFlight = false;
-  }
-}
-
-function startGlobalShiftPolling(userId, callback) {
-  if (globalPollTimer) {
-    console.log('[ShiftPoll] Already running, updating callback');
-    globalStatusUpdateCallback = callback;
-    return () => {}; // пустой стоппер
-  }
-  globalUserId = userId;
-  globalStatusUpdateCallback = callback;
-  const controller = new AbortController();
-  globalPollTimer = setInterval(() => {        // тик раз в 1s, но реальный вызов — по троттлингу
-    pollShiftStatusOnce(controller);
-  }, 1000);
-  // немедленный первый запуск
-  pollShiftStatusOnce(controller);
-  console.log('[ShiftPoll] started');
-  return () => {
-    try { controller.abort(); } catch {}
-    if (globalPollTimer) { clearInterval(globalPollTimer); globalPollTimer = null; }
-    globalInFlight = false;
-    globalStatusUpdateCallback = null;
-    globalUserId = null;
-    console.log('[ShiftPoll] stopped');
-  };
-}
-
-function stopGlobalShiftPolling() {
-  if (globalPollTimer) { clearInterval(globalPollTimer); globalPollTimer = null; }
-  globalInFlight = false;
-  globalStatusUpdateCallback = null;
-  globalUserId = null;
-  console.log('[ShiftPoll] stopped (manual)');
-}
-
 class ShiftStatusManager {
   constructor(userId, deviceId) {
     this.userId = userId;
     this.deviceId = deviceId;
-    this.websocket = null;
-    this.isConnected = false;
     this.statusUpdateCallback = null;
-    this.stopPollingFn = null;
     
-    this.connect();
+    console.log('[ShiftStatus] Manager created for user:', userId);
   }
   
   // Устанавливаем callback для обновления UI
   setStatusUpdateCallback(callback) {
     this.statusUpdateCallback = callback;
+    console.log('[ShiftStatus] Callback set');
   }
   
+  // Заглушки для совместимости с существующим кодом
   connect() {
-    // ВРЕМЕННО ОТКЛЮЧАЕМ WEBSOCKET - используем только polling
-    console.log('WebSocket temporarily disabled - using polling only');
-    console.log('Starting shift status polling...');
-    this.startPolling();
+    console.log('[ShiftStatus] Connect called - no polling, using on-demand requests');
   }
   
   startPolling() {
-    if (this.stopPollingFn) return; // уже запущен
-    
-    console.log('[ShiftPoll] Starting global polling for user:', this.userId);
-    this.stopPollingFn = startGlobalShiftPolling(this.userId, (data) => {
-      this.updateUI(data);
-    });
+    console.log('[ShiftStatus] StartPolling called - polling disabled, using on-demand requests');
   }
   
   stopPolling() {
-    if (this.stopPollingFn) {
-      this.stopPollingFn();
-      this.stopPollingFn = null;
-    }
+    console.log('[ShiftStatus] StopPolling called - polling disabled');
   }
   
+  disconnect() {
+    console.log('[ShiftStatus] Disconnect called');
+    this.statusUpdateCallback = null;
+  }
   
+  // Обновление UI через callback
   updateUI(data) {
     console.log('=== UPDATING UI ===');
     console.log('Shift status data:', data);
@@ -155,6 +60,7 @@ class ShiftStatusManager {
     }
   }
   
+  // Переключение смены
   async toggleShift() {
     const currentStatus = await this.getCurrentStatus();
     const isStarting = !currentStatus.has_active_shift;
@@ -163,11 +69,13 @@ class ShiftStatusManager {
     console.log('Current status:', currentStatus);
     console.log('Is starting:', isStarting);
     
-    await this.sendPunch(isStarting ? 1 : 0);
+    return await this.sendPunch(isStarting ? 1 : 0);
   }
   
+  // Получение текущего статуса смены
   async getCurrentStatus() {
     try {
+      console.log('[ShiftStatus] Fetching current status for user:', this.userId);
       const response = await fetch(`${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${this.userId}&api_token=${API_CONFIG.API_TOKEN}`, {
         headers: {
           'Content-Type': 'application/json',
@@ -177,16 +85,22 @@ class ShiftStatusManager {
       
       if (response.ok) {
         const parsed = await readJsonSafe(response, 'active-shift getCurrentStatus');
-        if (parsed.ok) return parsed.data;
+        if (parsed.ok) {
+          console.log('[ShiftStatus] Status received:', parsed.data);
+          return parsed.data;
+        }
+        console.log('[ShiftStatus] Failed to parse response');
         return { has_active_shift: false };
       }
+      console.log('[ShiftStatus] HTTP error:', response.status, response.statusText);
       return { has_active_shift: false };
     } catch (error) {
-      console.error('Error getting current status:', error);
+      console.error('[ShiftStatus] Error getting current status:', error);
       return { has_active_shift: false };
     }
   }
   
+  // Отправка punch (начало/конец смены)
   async sendPunch(status, photoName, tsOverride) {
     const timestamp = tsOverride || Math.floor(Date.now() / 1000);
     const punchData = {
@@ -221,15 +135,33 @@ class ShiftStatusManager {
       
       if (result.success) {
         console.log('Punch отправлен успешно');
-        // WebSocket или polling автоматически обновит UI
-        // Дополнительно форсим немедленную проверку статуса, чтобы UI обновился без задержки троттлинга
+        
+        // После успешного punch обновляем статус с задержкой и повторными попытками
         try {
-          // сбрасываем троттлинг и запускаем опрос прямо сейчас
-          globalLastRun = 0;
-          await pollShiftStatusOnce(new AbortController());
+          // Небольшая задержка, чтобы сервер успел обновить статус
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          let newStatus = await this.getCurrentStatus();
+          console.log('[ShiftStatus] First status check after punch:', newStatus);
+          
+          // Если статус еще не обновился, делаем еще одну попытку через 2 секунды
+          if (status === 1 && !newStatus.has_active_shift) {
+            console.log('[ShiftStatus] Status not updated yet, retrying...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            newStatus = await this.getCurrentStatus();
+            console.log('[ShiftStatus] Second status check after punch:', newStatus);
+          } else if (status === 0 && newStatus.has_active_shift) {
+            console.log('[ShiftStatus] Status not updated yet, retrying...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            newStatus = await this.getCurrentStatus();
+            console.log('[ShiftStatus] Second status check after punch:', newStatus);
+          }
+          
+          this.updateUI(newStatus);
         } catch (e) {
-          console.log('[ShiftPoll] immediate post-punch poll failed:', e?.message || e);
+          console.log('[ShiftStatus] Failed to refresh status after punch:', e?.message || e);
         }
+        
         return { success: true, data: result };
       } else {
         console.log('Ошибка punch:', result.error);
@@ -241,30 +173,34 @@ class ShiftStatusManager {
       return { success: false, error: error.message };
     }
   }
-  
-  disconnect() {
-    if (this.websocket) {
-      this.websocket.close();
-      this.websocket = null;
-    }
-    this.stopPolling();
-    this.isConnected = false;
-  }
 }
 
 export default ShiftStatusManager;
 
-// Немедленный форс-рефреш статуса смены из любого места приложения
-// Использует глобальный поллер и его callback, если он уже запущен через ShiftStatusManager
-export async function refreshShiftStatusNow(userIdOptional) {
+// Функция для обновления статуса смены по требованию
+export async function refreshShiftStatusNow(userId) {
   try {
-    if (typeof userIdOptional === 'number' || typeof userIdOptional === 'string') {
-      globalUserId = userIdOptional;
+    console.log('[ShiftStatus] Manual refresh requested for user:', userId);
+    
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${userId}&api_token=${API_CONFIG.API_TOKEN}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Api-token': API_CONFIG.API_TOKEN,
+      },
+    });
+    
+    if (response.ok) {
+      const parsed = await readJsonSafe(response, 'active-shift manual refresh');
+      if (parsed.ok) {
+        console.log('[ShiftStatus] Manual refresh successful:', parsed.data);
+        return parsed.data;
+      }
     }
-    // Сбрасываем троттлинг и выполняем одиночный опрос
-    globalLastRun = 0;
-    await pollShiftStatusOnce(new AbortController());
+    
+    console.log('[ShiftStatus] Manual refresh failed');
+    return { has_active_shift: false };
   } catch (e) {
-    console.log('[ShiftPoll] refreshShiftStatusNow error:', e?.message || e);
+    console.log('[ShiftStatus] Manual refresh error:', e?.message || e);
+    return { has_active_shift: false };
   }
 }

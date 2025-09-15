@@ -1,7 +1,7 @@
 import axios from 'axios';
 import authService from './services/authService';
 import Config from 'react-native-config';
-import { refreshShiftStatusNow } from './services/shiftStatusService';
+// import { refreshShiftStatusNow } from './services/shiftStatusService'; // Убираем автоматический refresh
 
 const api = axios.create({
   baseURL: 'https://api.tabelshik.com',
@@ -64,7 +64,8 @@ export async function postLocation({ lat, lon, accuracy, speed, heading, ts, bat
     });
     console.log(`[${new Date().toLocaleTimeString()}] postLocation success:`, response.status, response.data);
     try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
-    try { await refreshShiftStatusNow(currentUser.user_id); } catch {}
+    // Убираем автоматический refresh - теперь статус обновляется по требованию
+    console.log('[API] Location data posted successfully');
     return response;
   } catch (error) {
     console.error(`[${new Date().toLocaleTimeString()}] postLocation error:`, error.message);
@@ -117,7 +118,8 @@ export async function postLocationBatch(locations) {
     } 
   });
   try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
-  try { await refreshShiftStatusNow(currentUser.user_id); } catch {}
+  // Убираем автоматический refresh - теперь статус обновляется по требованию
+  console.log('[API] Location batch posted successfully');
   return response;
 }
 
@@ -174,7 +176,8 @@ export async function postLocationLegacy(locationData) {
     });
 
     try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
-    try { await refreshShiftStatusNow(currentUser.user_id); } catch {}
+    // Убираем автоматический refresh - теперь статус обновляется по требованию
+    console.log('[API] Location data posted successfully');
 
     return { success: true, data: response.data };
   } catch (error) {

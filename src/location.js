@@ -473,13 +473,8 @@ export async function initLocation() {
       if (r.status === 200) {
         console.log('✅ HTTP SUCCESS:', r.status);
         try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
-        try {
-          const { refreshShiftStatusNow } = require('./services/shiftStatusService');
-          const uid = currentUserId || 0;
-          if (uid) await refreshShiftStatusNow(uid);
-        } catch (e) {
-          console.log('[BG][onHttp] refreshShiftStatusNow error:', e?.message || e);
-        }
+        // Убираем автоматический refresh - теперь статус обновляется по требованию
+        console.log('[BG][onHttp] Geo data uploaded successfully');
       } else {
         console.log('❌ HTTP ERROR:', r.status, r.responseText);
       }
@@ -771,6 +766,18 @@ export async function stopTracking() {
   if (!BGGeo) {
     console.warn('BGGeo not initialized');
     return;
+  }
+  
+  // Принудительно синхронизируем накопленные точки перед остановкой
+  try {
+    const count = await BGGeo.getCount();
+    console.log('[BG] stopTracking: syncing', count, 'accumulated points before stopping');
+    if (count > 0) {
+      await BGGeo.sync();
+      console.log('[BG] stopTracking: sync completed');
+    }
+  } catch (e) {
+    console.log('[BG] stopTracking: sync error:', e?.message || e);
   }
   
   await BGGeo.stop();

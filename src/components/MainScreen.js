@@ -94,12 +94,9 @@ const MainScreen = ({ onLogout }) => {
         setCurrentUser(user);
         currentUserIdRef.current = user.user_id;
         
-        // Инициализируем ShiftStatusManager
+        // Инициализируем ShiftStatusManager (без polling)
         const deviceId = await deviceUtils.getDeviceId();
-        
-        // ВРЕМЕННО ОТКЛЮЧАЕМ ShiftStatusManager для стабилизации
-        const { DISABLE_POLLING, disabledShiftStatusManager } = require('../../disable_polling_websockets');
-        const manager = DISABLE_POLLING ? disabledShiftStatusManager : new ShiftStatusManager(user.user_id || 123, deviceId);
+        const manager = new ShiftStatusManager(user.user_id || 123, deviceId);
         
         // Принудительно сбрасываем BGGeo конфигурацию для исправления locationTemplate
         try {
@@ -168,6 +165,14 @@ const MainScreen = ({ onLogout }) => {
           }
         });
         
+        // Загружаем начальный статус смены
+        try {
+          const initialStatus = await manager.getCurrentStatus();
+          manager.updateUI(initialStatus);
+        } catch (e) {
+          console.log('Failed to load initial shift status:', e?.message || e);
+        }
+        
         setShiftStatusManager(manager);
       }
     };
@@ -218,7 +223,13 @@ const MainScreen = ({ onLogout }) => {
       try {
         console.log('[Shift] safeRefresh start, reqId=', reqId);
         const { refreshShiftStatusNow } = require('../services/shiftStatusService');
-        await refreshShiftStatusNow(uid);
+        const status = await refreshShiftStatusNow(uid);
+        
+        // Обновляем UI с полученным статусом
+        if (shiftStatusManager && shiftStatusManager.updateUI) {
+          shiftStatusManager.updateUI(status);
+        }
+        
         console.log('[Shift] safeRefresh done, reqId=', reqId);
       } catch (e) {
         console.log('[Shift] safeRefresh failed, reqId=', reqId, e?.message || e);
@@ -493,6 +504,18 @@ const MainScreen = ({ onLogout }) => {
       if (result.success) {
         Alert.alert('Успех', 'Смена начата!');
         
+        // Дополнительно обновляем UI после успешного punch
+        try {
+          console.log('[MainScreen] Manually refreshing status after successful punch in...');
+          const { refreshShiftStatusNow } = require('../services/shiftStatusService');
+          const updatedStatus = await refreshShiftStatusNow(currentUser.user_id);
+          if (shiftStatusManager && shiftStatusManager.updateUI) {
+            shiftStatusManager.updateUI(updatedStatus);
+          }
+        } catch (e) {
+          console.log('[MainScreen] Failed to manually refresh status after punch in:', e?.message || e);
+        }
+        
         // Запускаем отслеживание геолокации при начале смены
         try {
           const { ensureTracking } = require('../location.js');
@@ -628,6 +651,27 @@ const MainScreen = ({ onLogout }) => {
       if (result.success) {
         Alert.alert('Успех', 'Смена завершена!');
         
+        // Дополнительно обновляем UI после успешного punch
+        try {
+          console.log('[MainScreen] Manually refreshing status after successful punch out...');
+          const { refreshShiftStatusNow } = require('../services/shiftStatusService');
+          const updatedStatus = await refreshShiftStatusNow(currentUser.user_id);
+          if (shiftStatusManager && shiftStatusManager.updateUI) {
+            shiftStatusManager.updateUI(updatedStatus);
+          }
+        } catch (e) {
+          console.log('[MainScreen] Failed to manually refresh status after punch out:', e?.message || e);
+        }
+        
+        // Сначала дожидаемся выгрузки геоданных, затем останавливаем трекинг
+        try {
+          console.log('[MainScreen] Waiting for geo data upload before stopping tracking...');
+          await saveGeoOutPromise;
+          console.log('[MainScreen] Geo data upload completed');
+        } catch (e) {
+          console.log('[MainScreen] Geo data upload failed:', e?.message || e);
+        }
+        
         // Останавливаем отслеживание геолокации при завершении смены
         try {
           const { stopTracking } = require('../location.js');
@@ -640,8 +684,8 @@ const MainScreen = ({ onLogout }) => {
         Alert.alert('Ошибка', result.error);
       }
 
-      // Фоновая до-загрузка без блокировки UI
-      Promise.allSettled([uploadOutPromise, saveGeoOutPromise]).then(() => {}).catch(() => {});
+      // Фоновая до-загрузка фото без блокировки UI
+      uploadOutPromise.then(() => {}).catch(() => {});
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось завершить смену');
     } finally {

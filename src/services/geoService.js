@@ -1,7 +1,7 @@
 import axios from 'axios';
 import BackgroundGeolocation from 'react-native-background-geolocation';
 import { API_CONFIG, getApiTokenHeaders } from '../config/api';
-import { refreshShiftStatusNow } from './shiftStatusService';
+// import { refreshShiftStatusNow } from './shiftStatusService'; // Убираем автоматический refresh
 import { Platform } from 'react-native';
 import { getGeoConfig } from '../config/geoConfig';
 
@@ -71,7 +71,8 @@ class GeoService {
         // Очищаем отправленные данные
         this.geoData = [];
         try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
-        try { await refreshShiftStatusNow(userId); } catch {}
+        // Убираем автоматический refresh - теперь статус обновляется по требованию
+        console.log('[GeoService] Geo data uploaded successfully');
         return { success: true, data: response.data };
       } else {
         // webhook monitoring disabled

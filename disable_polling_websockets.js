@@ -1,50 +1,17 @@
-// Временное отключение polling и websockets для стабилизации приложения
-// Этот файл можно импортировать для полного отключения этих функций
+// Файл больше не нужен - polling полностью удален из проекта
+// Оставляем для совместимости, но все функции теперь работают без polling
 
-export const DISABLE_POLLING = false; // Включаем polling для работы смен
-export const DISABLE_WEBSOCKETS = true; // Оставляем websockets отключенными
+export const DISABLE_POLLING = true; // Polling полностью отключен
+export const DISABLE_WEBSOCKETS = true; // WebSockets отключены
 
-// Функция для проверки, отключены ли polling и websockets
+// Функции для совместимости
 export function isPollingDisabled() {
-  return DISABLE_POLLING;
+  return true; // Polling всегда отключен
 }
 
 export function isWebSocketsDisabled() {
-  return DISABLE_WEBSOCKETS;
+  return true; // WebSockets всегда отключены
 }
 
-// Заглушки для отключенных функций
-export const disabledShiftStatusManager = {
-  connect: () => {
-    console.log('[DISABLED] ShiftStatusManager.connect() - polling and websockets disabled');
-  },
-  startPolling: () => {
-    console.log('[DISABLED] ShiftStatusManager.startPolling() - polling disabled');
-  },
-  stopPolling: () => {
-    console.log('[DISABLED] ShiftStatusManager.stopPolling() - polling disabled');
-  },
-  disconnect: () => {
-    console.log('[DISABLED] ShiftStatusManager.disconnect() - polling and websockets disabled');
-  },
-  setStatusUpdateCallback: (callback) => {
-    console.log('[DISABLED] ShiftStatusManager.setStatusUpdateCallback() - polling disabled');
-  },
-  updateUI: (data) => {
-    console.log('[DISABLED] ShiftStatusManager.updateUI() - polling disabled');
-  },
-  toggleShift: async () => {
-    console.log('[DISABLED] ShiftStatusManager.toggleShift() - polling disabled');
-    return { success: false, error: 'Polling disabled' };
-  },
-  getCurrentStatus: async () => {
-    console.log('[DISABLED] ShiftStatusManager.getCurrentStatus() - polling disabled');
-    return { has_active_shift: false };
-  },
-  sendPunch: async (status) => {
-    console.log('[DISABLED] ShiftStatusManager.sendPunch() - polling disabled');
-    return { success: false, error: 'Polling disabled' };
-  }
-};
-
-console.log('Polling enabled, WebSockets disabled for stability');
+// Заглушки больше не нужны - используем обычный ShiftStatusManager
+console.log('Polling and WebSockets permanently disabled - using on-demand requests only');
