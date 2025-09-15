@@ -90,9 +90,10 @@ cat bggeo_after_poll_fix_*.log | grep "Shift status API response" | wc -l
    adb logcat -d | grep "startPolling\|setInterval" | wc -l
    ```
 
-2. **Проверить WebSocket fallback**:
+2. **Проверить отсутствие WebSocket (удалены)**:
    ```bash
-   adb logcat -d | grep "WebSocket.*polling" | wc -l
+   adb logcat -d | grep "WebSocket" | wc -l
+   # Должно быть 0 - WebSocket функциональность полностью удалена
    ```
 
 3. **Проверить BG состояние**:

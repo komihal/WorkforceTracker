@@ -101,11 +101,7 @@ jest.mock('../src/services/backgroundService', () => ({
   },
 }));
 
-jest.mock('../disable_polling_websockets', () => ({
-  __esModule: true,
-  DISABLE_POLLING: false,
-  disabledShiftStatusManager: {},
-}));
+// disable_polling_websockets.js удален - polling и websockets полностью убраны из проекта
 
 import MainScreen from '../src/components/MainScreen';
 import cameraService from '../src/services/cameraService';

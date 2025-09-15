@@ -41,7 +41,7 @@
 - **Duplicate postLocation**: Fixed naming conflict in `src/api.js`
 - **Single Initialization**: Confirmed only one BG Geo init in `src/services/bgGeo/location.ts`
 - **No Manual Network Calls**: Verified no postLocation calls in listeners
-- **Legitimate Timers**: Confirmed setInterval in shiftStatusService is for WebSocket fallback
+- **Legitimate Timers**: Confirmed setInterval in shiftStatusService is for polling (now removed)
 
 ### 4. Dependencies & Configuration
 - **react-native-fs**: Installed for file operations
