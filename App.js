@@ -3,7 +3,7 @@ import { SafeAreaView, Text, BackHandler, AppState } from 'react-native';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
 import StatsScreen from './src/components/StatsScreen';
-import BottomTabs from './src/components/BottomTabs';
+// import BottomTabs from './src/components/BottomTabs';
 import authService from './src/services/authService';
 import punchService from './src/services/punchService';
 import deviceUtils from './src/utils/deviceUtils';
@@ -23,6 +23,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const appState = useRef(AppState.currentState);
   const hasActive = useShiftStore(s => s.isActive);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     console.log('[APP] FIRST useEffect started');
@@ -137,10 +138,30 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
+  // Обновление состояния смены при смене вкладок
+  useEffect(() => {
+    const refreshShiftStatusOnTabChange = async () => {
+      if (currentTab === 'main' && currentUser?.user_id) {
+        try {
+          console.log('[App] Refreshing shift status on tab change to main...');
+          const { forceRefreshShiftStatus } = require('./src/services/shiftStatusService');
+          const status = await forceRefreshShiftStatus(currentUser.user_id);
+          
+          console.log('[App] Shift status refreshed on tab change:', status);
+        } catch (e) {
+          console.log('[App] Failed to refresh status on tab change:', e?.message || e);
+        }
+      }
+    };
+
+    refreshShiftStatusOnTabChange();
+  }, [currentTab, currentUser?.user_id]);
+
   const checkAuthStatus = async () => {
     try {
       const user = await authService.getCurrentUser();
       if (user) {
+        setCurrentUser(user);
         setCurrentScreen('main');
         
         // Инициализируем BG Geolocation для существующего пользователя
@@ -172,6 +193,7 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (userData) => {
+    setCurrentUser(userData);
     setCurrentScreen('main');
     
     // Инициализируем BG Geolocation для нового пользователя
@@ -196,6 +218,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    setCurrentUser(null);
     setCurrentScreen('login');
   };
 
@@ -219,7 +242,7 @@ export default function App() {
             {currentTab === 'main' && <MainScreen onLogout={handleLogout} />}
             {currentTab === 'stats' && <StatsScreen userId={null} />}
             {/* profile tab можно подключить позже */}
-            <BottomTabs current={currentTab} onChange={setCurrentTab} />
+            {/* <BottomTabs current={currentTab} onChange={setCurrentTab} /> */}
           </>
         );
       default:

@@ -177,6 +177,25 @@ class ShiftStatusManager {
 
 export default ShiftStatusManager;
 
+// Функция для принудительного обновления статуса смены с обновлением store
+export async function forceRefreshShiftStatus(userId) {
+  try {
+    console.log('[ShiftStatus] Force refresh requested for user:', userId);
+    
+    const status = await refreshShiftStatusNow(userId);
+    
+    // Импортируем и обновляем store
+    const { setFromServer } = require('../store/shiftStore');
+    setFromServer(status);
+    
+    console.log('[ShiftStatus] Force refresh completed:', status);
+    return status;
+  } catch (e) {
+    console.log('[ShiftStatus] Force refresh error:', e?.message || e);
+    return { has_active_shift: false };
+  }
+}
+
 // Функция для обновления статуса смены по требованию
 export async function refreshShiftStatusNow(userId) {
   try {

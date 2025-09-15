@@ -271,6 +271,32 @@ const MainScreen = ({ onLogout }) => {
     };
   }, []); // Убираем shiftStatusManager из зависимостей, чтобы избежать бесконечного цикла
 
+  // Обновление состояния смены при фокусе на MainScreen (для навигации между вкладками)
+  useEffect(() => {
+    const refreshStatusOnFocus = async () => {
+      if (!currentUser?.user_id || !shiftStatusManager) {
+        return;
+      }
+      
+      try {
+        console.log('[MainScreen] Refreshing shift status on focus...');
+        const { forceRefreshShiftStatus } = require('../services/shiftStatusService');
+        const status = await forceRefreshShiftStatus(currentUser.user_id);
+        
+        if (shiftStatusManager && shiftStatusManager.updateUI) {
+          shiftStatusManager.updateUI(status);
+        }
+        
+        console.log('[MainScreen] Shift status refreshed on focus:', status);
+      } catch (e) {
+        console.log('[MainScreen] Failed to refresh status on focus:', e?.message || e);
+      }
+    };
+
+    // Обновляем состояние при монтировании компонента (когда пользователь возвращается на главную вкладку)
+    refreshStatusOnFocus();
+  }, [currentUser?.user_id, shiftStatusManager]);
+
   // Индикаторы: GPS / сеть / энергосбережение / разрешения
   const refreshIndicators = useCallback(async () => {
     try {
