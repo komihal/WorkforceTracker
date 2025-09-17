@@ -15,6 +15,15 @@ import {
   Linking,
   Modal,
 } from 'react-native';
+import { 
+  Button as PaperButton, 
+  FAB, 
+  IconButton,
+  Chip,
+  Card,
+  Avatar,
+  Provider as PaperProvider
+} from 'react-native-paper';
 import { StatusBar } from 'react-native';
 import authService from '../services/authService';
 import Config from 'react-native-config';
@@ -25,7 +34,7 @@ import backgroundService from '../services/backgroundService';
 import cameraService from '../services/cameraService';
 import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
-import { ensureAlwaysLocationPermission, runSequentialPermissionFlow, forceShowBackgroundPermissionDialog, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
+import { runSequentialPermissionFlow, forceShowBackgroundPermissionDialog, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
 import ShiftStatusManager from '../services/shiftStatusService';
 // import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
@@ -33,6 +42,8 @@ import ShiftStatusManager from '../services/shiftStatusService';
 // DebugBgScreen and BgGeoTestScreen removed - no longer needed
 import { useShiftStore, setFromServer } from '../store/shiftStore';
 import { guardedAlert } from '../ui/alert';
+import { styles } from './MainScreen.styles';
+import { colors, shadows } from '../styles/colors';
 
 const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -60,6 +71,7 @@ const MainScreen = ({ onLogout }) => {
   const [menuModalVisible, setMenuModalVisible] = useState(false);
   const [accessModalVisible, setAccessModalVisible] = useState(false);
   const [showHeaderBadges, setShowHeaderBadges] = useState(false);
+  const [shiftsList, setShiftsList] = useState([]);
   // Селфи-модал отключен, используем image-picker
 
   const captureSelfie = async () => {
@@ -88,9 +100,11 @@ const MainScreen = ({ onLogout }) => {
 
   useEffect(() => {
     const loadUserData = async () => {
+      console.log('[MainScreen] loadUserData: starting...');
       const user = await authService.getCurrentUser();
+      console.log('[MainScreen] loadUserData: got user:', user);
       if (user) {
-        console.log('Loaded currentUser:', user);
+        console.log('[MainScreen] loadUserData: setting currentUser:', user);
         setCurrentUser(user);
         currentUserIdRef.current = user.user_id;
         
@@ -177,30 +191,9 @@ const MainScreen = ({ onLogout }) => {
       }
     };
     
-    const requestLocationPermissions = async () => {
-      if (locationPermissionsRequested.current) {
-        console.log('Location permissions already requested, skipping...');
-        return;
-      }
-      
-      try {
-        console.log('Requesting background location permission...');
-        locationPermissionsRequested.current = true;
-        const hasAlways = await ensureAlwaysLocationPermission();
-        if (hasAlways) {
-          console.log('Background location permission granted');
-        } else {
-          console.log('Background location permission denied');
-        }
-      } catch (error) {
-        console.error('Error requesting location permissions:', error);
-        locationPermissionsRequested.current = false; // Reset on error
-      }
-    };
-    
     loadUserData();
     // endpoint/test toggles removed
-    requestLocationPermissions();
+    // Убираем дублирующий запрос разрешений - runSequentialPermissionFlow() уже включает запрос геолокации
     // Запускаем последовательный flow при первом входе в экран (foreground-only)
     setTimeout(() => { runSequentialPermissionFlow(); }, 600);
     
@@ -946,6 +939,15 @@ const MainScreen = ({ onLogout }) => {
     } catch { return '—'; }
   };
 
+  const formatDate = (date) => {
+    try {
+      if (!date) return '—';
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString('ru-RU');
+    } catch { return '—'; }
+  };
+
   useEffect(() => {
     const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
     const getMonthRange = (offset) => {
@@ -965,25 +967,46 @@ const MainScreen = ({ onLogout }) => {
         const userId = currentUser?.user_id;
         if (!userId) return;
         const { API_CONFIG } = require('../config/api');
-        const { start, end } = getMonthRange(monthOffset);
-        const qs = `?user_id=${userId}&from=${start}&to=${end}`;
-        const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.WORKSHIFTS}${qs}`, {
-          headers: { 'Content-Type': 'application/json', 'Api-token': API_CONFIG.API_TOKEN },
+        
+        // Получаем смены пользователя через новый endpoint
+        const shiftsRes = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SHIFTS}?user_id=${userId}`, {
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Token ${API_CONFIG.API_TOKEN}` },
         });
-        if (!res.ok) return;
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
-        const total = list.length;
+        
+        let list = [];
+        if (shiftsRes.ok) {
+          const shiftsData = await shiftsRes.json();
+          // Обрабатываем структуру ответа: { success: true, shifts: [...], total_count: 25, ... }
+          if (shiftsData.success && Array.isArray(shiftsData.shifts)) {
+            list = shiftsData.shifts;
+          } else if (Array.isArray(shiftsData)) {
+            list = shiftsData;
+          } else if (Array.isArray(shiftsData?.results)) {
+            list = shiftsData.results;
+          }
+        }
+        
+        // Фильтруем смены по месяцу для статистики
+        const { start, end } = getMonthRange(monthOffset);
+        const monthlyList = list.filter(shift => {
+          const shiftDate = shift.shift_start || shift.date;
+          if (!shiftDate) return false;
+          const date = new Date(shiftDate);
+          const monthStart = new Date(start);
+          const monthEnd = new Date(end);
+          return date >= monthStart && date <= monthEnd;
+        });
+        const total = monthlyList.length;
         let approved = 0;
         let approvedHours = 0;
         let appCount = 0;
         let suspicious = 0;
         const toHrs = (ms) => ms / (1000 * 60 * 60);
-        for (const x of list) {
-          const status = (x.status || x.shift_status || '').toString().toLowerCase();
+        for (const x of monthlyList) {
+          const status = (x.shift_status || x.status || '').toString().toLowerCase();
           const isApproved = status.includes('approved') || status.includes('normal') || status.includes('утверж');
           if (isApproved) approved += 1;
-          let hrs = x.shift_duration_hours || x.duration_hours || null;
+          let hrs = x.shift_duration || x.shift_duration_hours || x.duration_hours || null;
           if (hrs == null && x.shift_start && x.shift_end) {
             const st = new Date(x.shift_start).getTime();
             const en = new Date(x.shift_end).getTime();
@@ -1004,6 +1027,73 @@ const MainScreen = ({ onLogout }) => {
     fetchMonthlyStats();
   }, [currentUser, monthOffset]);
 
+  // Загрузка всех смен пользователя для отображения в таблице
+  useEffect(() => {
+    console.log('[MainScreen] fetchUserShifts useEffect triggered, currentUser:', currentUser);
+    const fetchUserShifts = async () => {
+      try {
+        const userId = currentUser?.user_id;
+        console.log('[MainScreen] fetchUserShifts: userId =', userId);
+        if (!userId) {
+          console.log('[MainScreen] fetchUserShifts: no userId, skipping');
+          return;
+        }
+        
+        console.log('[MainScreen] fetchUserShifts: starting for userId:', userId);
+        const { API_CONFIG } = require('../config/api');
+        const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SHIFTS}?user_id=${userId}&aggregate=1`;
+        console.log('[MainScreen] fetchUserShifts: URL:', url);
+        
+        const res = await fetch(url, {
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Token ${API_CONFIG.API_TOKEN}` },
+        });
+        
+        console.log('[MainScreen] fetchUserShifts: response status:', res.status);
+        
+        if (res.ok) {
+          const data = await res.json();
+          console.log('[MainScreen] fetchUserShifts: received data:', data);
+          
+          // Обрабатываем структуру ответа:
+          // - агрегированный ответ: { success: true, aggregate: true, items: [...] }
+          // - или старые схемы: { success: true, shifts: [...] } | { results: [...] } | [...]
+          let shifts = [];
+          if (data.aggregate && Array.isArray(data.items)) {
+            // Нормализуем агрегированные элементы под текущий рендер списка
+            shifts = data.items.map((it) => ({
+              // используем дату дня как начало смены для отображения
+              shift_start: it.date ? `${it.date}T00:00:00Z` : null,
+              // длительность часов берём из total_hours, чтобы отрендерилось в колонке часов
+              duration_hours: typeof it.total_hours === 'number' ? it.total_hours : null,
+              // сохраняем агрегированные поля на будущее
+              date: it.date,
+              day_hours: it.day_hours,
+              night_hours: it.night_hours,
+              day_shifts_count: it.day_shifts_count,
+              night_shifts_count: it.night_shifts_count,
+              is_aggregate: true,
+            }));
+          } else if (data.success && Array.isArray(data.shifts)) {
+            shifts = data.shifts;
+          } else if (Array.isArray(data)) {
+            shifts = data;
+          } else if (Array.isArray(data?.results)) {
+            shifts = data.results;
+          }
+          
+          console.log('[MainScreen] fetchUserShifts: processed shifts:', shifts.length, 'items');
+          setShiftsList(shifts);
+        } else {
+          console.log('[MainScreen] fetchUserShifts: response not ok:', res.status, res.statusText);
+        }
+      } catch (error) {
+        console.log('[MainScreen] Error fetching user shifts:', error);
+      }
+    };
+    
+    fetchUserShifts();
+  }, [currentUser]);
+
   // Список отсутствующих разрешений/состояний для badge
   const missingBadges = [];
   if (!indicators.permission) missingBadges.push({ key: 'permission', label: 'Гео‑разрешения', onPress: requestBackgroundLocationTwoClicks });
@@ -1014,28 +1104,45 @@ const MainScreen = ({ onLogout }) => {
 
 
   return (
-    <SafeAreaView style={styles.container}>
+    <PaperProvider>
+      <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
         {/* Тёмная полоса под статус-баром: выходит за safe-area и немного ниже */}
         <View style={styles.statusBarStripAbsolute} />
         <View style={styles.statusBarSpacer} />
 
-        <View style={styles.userHeader}>
+        <View style={[styles.userHeader]}>
           <View style={styles.userTopRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.userRoleTop}>{(currentUser?.worker_type || '').toLowerCase() === 'worker' ? 'Рабочий' : (currentUser?.worker_type || 'Пользователь')}</Text>
-              <View style={styles.nameWithBadgeRow}>
-                {missingBadges.length > 0 && (
-                  <TouchableOpacity onPress={() => setShowHeaderBadges(v => !v)} style={[styles.unreadBadge, { marginRight: 6 }]} accessibilityLabel="Проблемы с доступами">
-                    <Text style={styles.unreadBadgeText}>!</Text>
-                  </TouchableOpacity>
-                )}
-                <Text style={styles.userNameTop}>{currentUser ? (displayName || '—') : 'Загрузка...'}</Text>
-              </View>
+            <Avatar.Icon 
+              size={60} 
+              icon="account-circle" 
+              color={colors.primary}
+              style={{ backgroundColor: 'transparent' }}
+              onTouchEnd={() => setMenuModalVisible(true)}
+              accessibilityLabel="Профиль"
+            />
+            <Text style={styles.userRoleTop}>{(currentUser?.user_lname + ' ' + currentUser?.user_fname.charAt(0) + '.' + currentUser?.user_mname.charAt(0) + '.' || 'Пользователь')}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Chip 
+                mode="flat"
+                style={{ 
+                  backgroundColor: userStatus === WorkerStatus.WORKING ? '#4CAF50' : 
+                                  (userStatus === WorkerStatus.BLOCKED || userStatus === WorkerStatus.FIRED) ? '#F44336' : '#FF9800'
+                }}
+                textStyle={{ 
+                  color: '#FFFFFF',
+                  fontSize: 13,
+                  fontWeight: '700'
+                }}
+              >
+                {humanizeStatus(userStatus)}
+              </Chip>
+              {missingBadges.length > 0 && (
+                <TouchableOpacity onPress={() => setShowHeaderBadges(v => !v)} style={[styles.unreadBadge]} accessibilityLabel="Проблемы с доступами">
+                  <Text style={styles.unreadBadgeText}>!</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            <TouchableOpacity onPress={() => setMenuModalVisible(true)} accessibilityLabel="Меню">
-              <Text style={styles.kebabIcon}>⋮</Text>
-            </TouchableOpacity>
           </View>
           {/* Показ badges доступов прямо в хедере (по нажатию на ! слева от ФИО) */}
           {showHeaderBadges && missingBadges.length > 0 && (
@@ -1060,16 +1167,53 @@ const MainScreen = ({ onLogout }) => {
         {/* Показываем только badge для отсутствующих доступов */}
         {/* Badges теперь показываются через глаз в шапке пользователя */}
 
-        {/* Модалка меню (три точки) */}
+        {/* Модалка профиля */}
         <Modal visible={menuModalVisible} transparent animationType="fade" onRequestClose={() => setMenuModalVisible(false)}>
           <View style={styles.logoutModalOverlay}>
             <TouchableOpacity style={styles.fill} activeOpacity={1} onPress={() => setMenuModalVisible(false)} />
-            <View style={[styles.menuDropdown, { top: 64, right: 24 }]}
-              pointerEvents="box-none">
-              <TouchableOpacity style={[styles.button, styles.logoutDropdownButton]} onPress={() => { setMenuModalVisible(false); handleLogout(); }}>
-                <Text style={styles.logoutDropdownLabel}>Выйти из системы</Text>
-              </TouchableOpacity>
-            </View>
+            {/* Контейнер с ФИО пользователя */}
+            <Card style={{
+              position: 'absolute',
+              top: 64,
+              left: 16,
+              right: 16,
+              backgroundColor: colors.surface,
+              elevation: 4
+            }}>
+              <Card.Content style={{ padding: 20 }}>
+                <Text style={{
+                  fontSize: 24,
+                  fontWeight: '700',
+                  color: colors.textDark,
+                  marginBottom: 8
+                }}>
+                  {currentUser ? (displayName || '—') : 'Загрузка...'}
+                </Text>
+                <Text style={{
+                  fontSize: 16,
+                  color: colors.textPrimary,
+                  marginBottom: 16
+                }}>
+                  {(currentUser?.worker_type || '').toLowerCase() === 'worker' ? 'Рабочий' : (currentUser?.worker_type || 'Админ')}
+                </Text>
+                
+                {/* Кнопка выхода - внутри контейнера */}
+                <View style={{ alignItems: 'flex-end' }}>
+                  <PaperButton
+                    mode="contained"
+                    onPress={() => { setMenuModalVisible(false); handleLogout(); }}
+                    buttonColor={colors.buttonLogout}
+                    textColor={colors.textLight}
+                    uppercase={false}
+                    style={{ alignSelf: 'flex-end' }}
+                    contentStyle={{ paddingHorizontal: 16, paddingVertical: 6 }}
+                    labelStyle={{ fontSize: 16 }}
+                  >
+                    Выйти
+                  </PaperButton>
+                </View>
+              </Card.Content>
+            </Card>
           </View>
         </Modal>
 
@@ -1106,8 +1250,8 @@ const MainScreen = ({ onLogout }) => {
           </View>
         </Modal>
 
-        <View style={[styles.statusCard, styles.statusCardFullWidth]}>
-          <View style={[styles.statusIndicator, isShiftActive ? styles.activeStatus : styles.inactiveStatus]}>
+        <View style={[styles.statusCard]}>
+          <View style={[styles.statusIndicator, styles.statusIndicatorFullWidth, isShiftActive ? styles.activeStatus : styles.inactiveStatus]}>
             <Text style={[
               styles.statusText,
               isShiftActive ? styles.statusTextActive : styles.statusTextInactive
@@ -1135,6 +1279,54 @@ const MainScreen = ({ onLogout }) => {
             </Text>
           )}
 
+        </View>
+        {/* Таблица смен пользователя */}
+        <View style={[styles.statusCard]}>
+          <Text style={styles.statusTitle}>Ваши смены</Text>
+          <ScrollView horizontal>
+            <View>
+              <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 6 }}>
+                <Text style={{ width: 100, fontWeight: '700', fontSize: 14 }}>Дата</Text>
+                <Text style={{ width: 90, fontWeight: '700', fontSize: 14 }}>Часы (всего)</Text>
+                <Text style={{ width: 120, fontWeight: '700', fontSize: 14 }}>Утверждено (ч)</Text>
+              </View>
+              {shiftsList && shiftsList.length > 0 ? (
+                shiftsList.map((shift, idx) => {
+                  // Вычисляем общее количество часов из новой структуры
+                  let totalHours = shift.shift_duration || shift.shift_duration_hours || shift.duration_hours || null;
+                  if (totalHours == null && shift.shift_start && shift.shift_end) {
+                    const start = new Date(shift.shift_start).getTime();
+                    const end = new Date(shift.shift_end).getTime();
+                    if (!isNaN(start) && !isNaN(end) && end > start) {
+                      totalHours = (end - start) / (1000 * 60 * 60);
+                    }
+                  }
+                  
+                  // Определяем утвержденные часы
+                  const status = (shift.shift_status || shift.status || '').toString().toLowerCase();
+                  const isApproved = status.includes('approved') || status.includes('normal') || status.includes('утверж');
+                  const approvedHours = isApproved && typeof totalHours === 'number' ? totalHours : 0;
+                  
+                  return (
+                    <View key={shift.shift_id || shift.id || idx} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderColor: '#f5f5f5' }}>
+                      <Text style={{ width: 100 }}>{formatDate(shift.shift_start)}</Text>
+                      <Text style={{ width: 90 }}>{totalHours ? totalHours.toFixed(1) : '—'}</Text>
+                      <Text style={{ width: 120 }}>{approvedHours ? approvedHours.toFixed(1) : '—'}</Text>
+                    </View>
+                  );
+                })
+              ) : (
+                <View style={{ paddingVertical: 12 }}>
+                  <Text style={{ color: '#888', fontSize: 14 }}>Нет данных о сменах</Text>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+          {userStatus === WorkerStatus.BLOCKED && (
+            <Text style={{ color: 'crimson', fontSize: 14, marginTop: 10, textAlign: 'center', fontWeight: '600' }}>
+              ⚠️ ВНИМАНИЕ: Пользователь заблокирован!
+            </Text>
+          )}
         </View>
 
         <View style={styles.actions}>
@@ -1245,16 +1437,20 @@ const MainScreen = ({ onLogout }) => {
           )}
         </View>
 
-        {/* Кнопка показа количества накопленных точек под блоком смены */}
-        <View style={{ marginBottom: 16 }}>
-          <TouchableOpacity
-            style={[styles.button, styles.queuedButton]}
-            onPress={handleShowQueuedPoints}
-            accessibilityLabel="Показать количество накопленных точек"
-          >
-            <Text style={styles.buttonText}>Накопленные точки</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Кнопка показа количества накопленных точек под блоком смены - только для дебаг */}
+        {__DEV__ && (
+          <View style={{ marginBottom: 16 }}>
+            <PaperButton
+              mode="outlined"
+              icon="chart-line"
+              onPress={handleShowQueuedPoints}
+              style={styles.queuedButton}
+              accessibilityLabel="Показать количество накопленных точек"
+            >
+              Накопленные точки
+            </PaperButton>
+          </View>
+        )}
 
         {/* Кнопка выхода перенесена в шапку */}
       </ScrollView>
@@ -1263,775 +1459,34 @@ const MainScreen = ({ onLogout }) => {
       {/* Фиксированные нижние кнопки открытия/закрытия смены */}
       {!isShiftActive && canStartShift(userStatus) && (
         <View style={styles.fabContainer} pointerEvents={isLoading ? 'none' : 'auto'}>
-          <TouchableOpacity
-            style={[styles.fabButton, isLoading && styles.fabButtonDisabled]}
+          <FAB
+            icon="play"
+            label="Открыть смену"
             onPress={handlePunchIn}
             disabled={isLoading}
+            loading={isLoading}
+            style={[styles.fabButton, { backgroundColor: '#4CAF50' }]}
             accessibilityLabel="Открыть смену"
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" />)
-              : (<Text style={styles.fabText}>Открыть смену</Text>)}
-          </TouchableOpacity>
+          />
         </View>
       )}
       {isShiftActive && (
         <View style={styles.fabContainer} pointerEvents={isLoading ? 'none' : 'auto'}>
-          <TouchableOpacity
-            style={[styles.fabButtonClose, isLoading && styles.fabButtonDisabled]}
+          <FAB
+            icon="stop"
+            label="Закрыть смену"
             onPress={handlePunchOut}
             disabled={isLoading}
+            loading={isLoading}
+            style={[styles.fabButtonClose, { backgroundColor: '#F44336' }]}
             accessibilityLabel="Закрыть смену"
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" />)
-              : (<Text style={styles.fabText}>Закрыть смену</Text>)}
-          </TouchableOpacity>
+          />
         </View>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </PaperProvider>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  statusBarSpacer: {
-    height: Platform.OS === 'ios' ? 16 : 12,
-  },
-  statusBarStripAbsolute: {
-    position: 'absolute',
-    top: -100,
-    left: -1000,
-    right: -1000,
-    height: Platform.OS === 'ios' ? 160 : 120,
-    backgroundColor: '#1f1f1f',
-    zIndex: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 20,
-  },
-  fabContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 40, // немного выше таб-бара
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-  fabButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 22,
-    minWidth: 220,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
-  },
-  fabButtonClose: {
-    backgroundColor: '#F44336',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 22,
-    minWidth: 220,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
-  },
-  fabButtonDisabled: {
-    backgroundColor: '#8AB4F8',
-  },
-  fabText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  header: {
-    alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 30,
-  },
-  headerArea: {
-    alignItems: 'center',
-    paddingTop: 76,
-    paddingBottom: 12,
-  },
-  topBar: {
-    paddingTop: 12,
-    paddingBottom: 8,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  userTopRow: {
-    paddingTop: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  userHeader: {
-    marginHorizontal: -1000,
-    paddingHorizontal: 1000,
-    backgroundColor: '#e6eef6',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  userQuickRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    gap: 10,
-  },
-  kebabIcon: {
-    fontSize: 22,
-    color: '#333',
-    padding: 8,
-  },
-  metricsRow: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  metricsText: {
-    color: '#333',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  shiftStatsCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    margin: 16,
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#eee',
-  },
-  shiftStatsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingTop: 12,
-  },
-  monthLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-    textTransform: 'capitalize',
-  },
-  monthChevron: {
-    fontSize: 28,
-    color: '#333',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  shiftStatsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 12,
-    gap: 10,
-  },
-  statBox: {
-    width: '48%',
-    backgroundColor: '#f7f9fc',
-    borderRadius: 10,
-    padding: 12,
-  },
-  statLabel: {
-    color: '#666',
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  statValue: {
-    color: '#1d1d1f',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  statSub: {
-    color: '#666',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  statsCardDark: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 16,
-    marginHorizontal: 12,
-    marginTop: 12,
-    paddingBottom: 10,
-  },
-  pillRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-  },
-  pill: {
-    backgroundColor: '#2C2C2E',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-  },
-  pillActive: {
-    backgroundColor: '#fff',
-  },
-  pillText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  pillTextActive: {
-    color: '#1d1d1f',
-  },
-  statsAmount: {
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '800',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  sbList: {
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  sbItem: {
-    backgroundColor: '#2C2C2E',
-    borderRadius: 12,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sbItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  sbIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sbIconText: { color: '#1d1d1f', fontWeight: '800' },
-  sbTitle: { color: '#fff', fontWeight: '700' },
-  sbSub: { color: '#98989F', fontSize: 12, fontWeight: '600' },
-  sbValue: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  modalOverlayNoShade: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    paddingTop: 96,
-    paddingRight: 12,
-  },
-  logoutModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    paddingTop: 96,
-    paddingRight: 12,
-  },
-  fill: { flex: 1, alignSelf: 'stretch' },
-  menuDropdown: {
-    position: 'absolute',
-    right: 12,
-    backgroundColor: 'transparent',
-    borderRadius: 0,
-    padding: 0,
-    minWidth: undefined,
-    shadowColor: 'transparent',
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  logoutDropdownButton: {
-    backgroundColor: '#3A3A3C',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  logoutDropdownLabel: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'right',
-  },
-  userMenu: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  userRoleTop: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '600',
-  },
-  userNameTop: {
-    fontSize: 20,
-    color: '#333',
-    fontWeight: '800',
-  },
-  nameWithBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  unreadBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#FF9800',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unreadBadgeText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 14,
-    marginTop: -1,
-  },
-  headerRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  logo: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  logoSmall: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoLetter: {
-    color: '#fff',
-    fontSize: 34,
-    fontWeight: '800',
-  },
-  logoLetterSmall: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  appName: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 6,
-  },
-  appNameInline: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-  },
-  userCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  userCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  userCardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-  },
-  userCardChevron: {
-    fontSize: 16,
-    color: '#666',
-  },
-  userName: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 8,
-  },
-  userDetails: {
-    gap: 10,
-    marginTop: 4,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  detailLabel: {
-    flex: 1,
-    color: '#333',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  detailValue: {
-    marginRight: 6,
-    fontWeight: '700',
-  },
-  ok: { color: '#2e7d32' },
-  bad: { color: '#c62828' },
-  statusCard: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  statusCardFullWidth: {
-    alignSelf: 'stretch',
-    marginHorizontal: -20,
-    borderRadius: 0,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    paddingHorizontal: 20,
-  },
-  indicatorsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginBottom: 16,
-  },
-  indicatorItem: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  indicatorOk: {
-    backgroundColor: '#E8F5E9',
-    borderColor: '#4CAF50',
-  },
-  indicatorBad: {
-    backgroundColor: '#FFEBEE',
-    borderColor: '#F44336',
-  },
-  indicatorLabel: {
-    color: '#333',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  badge: {
-    backgroundColor: '#FFF3E0',
-    borderColor: '#FF9800',
-    borderWidth: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-  },
-  badgeText: {
-    color: '#7A4F00',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  accessPanel: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#eee',
-  },
-  accessHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  accessTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-  },
-  accessClose: {
-    color: '#007AFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  accessRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  accessLabel: {
-    color: '#333',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  accessRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  accessStatus: {
-    fontWeight: '700',
-  },
-  accessBtn: {
-    backgroundColor: '#FF9800',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-  },
-  accessBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  statusTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 15,
-  },
-  statusIndicator: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  activeStatus: {
-    backgroundColor: 'rgba(76, 175, 80, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(76, 175, 80, 1)',
-  },
-  inactiveStatus: {
-    backgroundColor: 'rgba(244, 67, 54, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(244, 67, 54, 1)',
-  },
-  statusText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statusTextActive: {
-    color: '#2E7D32',
-  },
-  statusTextInactive: {
-    color: '#B71C1C',
-  },
-  actions: {
-    marginBottom: 20,
-  },
-  button: {
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  punchInButton: {
-    backgroundColor: '#007AFF',
-  },
-  punchOutButton: {
-    backgroundColor: '#F44336',
-  },
-  logoutButton: {
-    backgroundColor: '#9E9E9E',
-  },
-  logoutTopButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 14,
-    borderWidth: 0,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
-  logoutTopLabel: {
-    color: '#1d1d1f',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  logoutButtonSmall: {
-    backgroundColor: '#9E9E9E',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginBottom: 0,
-  },
-  logoutIconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#9E9E9E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  logoutIconText: {
-    color: '#9E9E9E',
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: -1,
-  },
-  logoutAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#9E9E9E',
-  },
-  logoutEmoji: {
-    color: '#9E9E9E',
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: -1,
-  },
-  logoutLabel: {
-    color: '#333',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  testButton: {
-    backgroundColor: '#2196F3',
-  },
-
-  buttonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 15,
-  },
-
-  bottomButtons: {
-    flexDirection: 'column',
-    gap: 10,
-  },
-  endpointToggleSection: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  endpointToggleButton: {
-    backgroundColor: '#2196F3',
-    marginBottom: 10,
-  },
-  endpointDescription: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  banner: {
-    backgroundColor: '#FFF7E6',
-    borderColor: '#FFC107',
-    borderWidth: 1,
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  bannerText: {
-    color: '#7A5D00',
-    marginBottom: 8,
-    textAlign: 'center',
-    fontSize: 14,
-    fontWeight: '600'
-  },
-  bannerButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    gap: 8,
-  },
-  testButton: {
-    backgroundColor: '#FF9800',
-  },
-  testButtonActive: {
-    backgroundColor: '#4CAF50',
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 76,
-    paddingBottom: 12,
-    paddingHorizontal: 8,
-  },
-  logoutAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  logoutEmoji: {
-    fontSize: 24,
-    color: '#9E9E9E',
-  },
-  logoutLabel: {
-    fontSize: 16,
-    color: '#9E9E9E',
-  },
-
-});
 
 export default MainScreen;

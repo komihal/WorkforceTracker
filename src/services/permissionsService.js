@@ -4,6 +4,13 @@ import { ensureBatteryOptimizationDisabled } from '../utils/batteryOptimization'
 
 async function ensureIOSAlways() {
   try {
+    // Защита от множественных одновременных запросов
+    if (locationPermissionRequestInProgress) {
+      console.log('Location permission request already in progress, skipping...');
+      return false;
+    }
+    locationPermissionRequestInProgress = true;
+    
     const alwaysStatus = await check(PERMISSIONS.IOS.LOCATION_ALWAYS);
     if (alwaysStatus === RESULTS.GRANTED) {
       return true;
@@ -41,14 +48,18 @@ async function ensureIOSAlways() {
   } catch (e) {
     console.error('ensureIOSAlways error:', e);
     return false;
+  } finally {
+    locationPermissionRequestInProgress = false;
   }
 }
 
 let bgRequestShownThisSession = false;
+let locationPermissionRequestInProgress = false;
 
 // Функция для сброса флага показа диалога (для принудительного показа)
 export function resetBackgroundPermissionDialog() {
   bgRequestShownThisSession = false;
+  locationPermissionRequestInProgress = false;
   console.log('Background permission dialog flag reset');
 }
 
@@ -64,9 +75,10 @@ export function initAppStateListener() {
     console.log('AppState changed to:', nextAppState);
     
     if (nextAppState === 'active') {
-      // Приложение стало активным - сбрасываем флаг показа диалога
-      console.log('App became active, resetting background permission dialog flag');
+      // Приложение стало активным - сбрасываем флаги показа диалогов
+      console.log('App became active, resetting permission dialog flags');
       bgRequestShownThisSession = false;
+      locationPermissionRequestInProgress = false;
       
       // Проверяем разрешения на уведомления при каждом открытии приложения
       setTimeout(() => {
@@ -230,6 +242,13 @@ async function ensureAndroidAlways() {
   try {
     console.log('===== ANDROID PERMISSIONS START =====');
     
+    // Защита от множественных одновременных запросов
+    if (locationPermissionRequestInProgress) {
+      console.log('Location permission request already in progress, skipping...');
+      return false;
+    }
+    locationPermissionRequestInProgress = true;
+    
     // Сначала проверяем все разрешения без запроса
     const fineStatus = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
     console.log('ACCESS_FINE_LOCATION status:', fineStatus);
@@ -310,6 +329,8 @@ async function ensureAndroidAlways() {
   } catch (e) {
     console.error('ensureAndroidAlways error:', e);
     return false;
+  } finally {
+    locationPermissionRequestInProgress = false;
   }
 }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SafeAreaView, Text, BackHandler, AppState } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
 import StatsScreen from './src/components/StatsScreen';
@@ -251,8 +252,10 @@ export default function App() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
-      {renderScreen()}
-    </SafeAreaView>
+    <SafeAreaProvider>
+      <SafeAreaView style={{ flex: 1 }}>
+        {renderScreen()}
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }

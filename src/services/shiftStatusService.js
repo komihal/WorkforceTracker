@@ -79,7 +79,7 @@ class ShiftStatusManager {
       const response = await fetch(`${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${this.userId}&api_token=${API_CONFIG.API_TOKEN}`, {
         headers: {
           'Content-Type': 'application/json',
-          'Api-token': API_CONFIG.API_TOKEN,
+          'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
         },
       });
       
@@ -120,7 +120,7 @@ class ShiftStatusManager {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Api-token': API_CONFIG.API_TOKEN,
+          'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
         },
         body: JSON.stringify(punchData)
       });
@@ -204,7 +204,7 @@ export async function refreshShiftStatusNow(userId) {
     const response = await fetch(`${API_CONFIG.BASE_URL}/api/active-shift/?user_id=${userId}&api_token=${API_CONFIG.API_TOKEN}`, {
       headers: {
         'Content-Type': 'application/json',
-        'Api-token': API_CONFIG.API_TOKEN,
+        'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
       },
     });
     

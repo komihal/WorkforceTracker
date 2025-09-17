@@ -17,7 +17,7 @@ class AuthService {
         user_login: userLogin,
         user_password: userPassword,
       }, {
-        headers: { ...getAuthHeaders(), 'Api-token': API_CONFIG.API_TOKEN },
+        headers: { ...getAuthHeaders(), 'Authorization': `Bearer ${API_CONFIG.API_TOKEN}` },
       });
 
       if (response.data && response.data.success) {

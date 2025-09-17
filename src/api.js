@@ -10,7 +10,7 @@ const api = axios.create({
 
 api.interceptors.request.use(cfg => {
   cfg.headers['Content-Type'] = 'application/json';
-  cfg.headers['Api-token'] = 'wqHJerK834';
+  cfg.headers['Authorization'] = 'Bearer wqHJerK834';
   return cfg;
 });
 

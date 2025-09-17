@@ -25,7 +25,7 @@ export default function StatsScreen({ userId }) {
         const { start, end } = getMonthRange(monthOffset);
         const qs = `?user_id=${userId}&from=${start}&to=${end}`;
         const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.WORKSHIFTS}${qs}`, {
-          headers: { 'Content-Type': 'application/json', 'Api-token': API_CONFIG.API_TOKEN },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_CONFIG.API_TOKEN}` },
         });
         if (!res.ok) return;
         const data = await res.json();

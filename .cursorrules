@@ -1,0 +1,274 @@
+# Правила для Cursor - Material Design кнопки
+
+## Общие принципы использования кнопок Material Design
+
+### 1. Импорты Material Design компонентов
+Всегда используй компоненты из `react-native-paper` для кнопок:
+```javascript
+import { 
+  Button as PaperButton, 
+  FAB, 
+  IconButton,
+  Chip,
+  Provider as PaperProvider
+} from 'react-native-paper';
+```
+
+### 2. Типы кнопок Material Design
+
+#### Основные кнопки (Button)
+- **Contained (mode="contained")** - для основных действий
+- **Outlined (mode="outlined")** - для вторичных действий  
+- **Text (mode="text")** - для третичных действий
+
+#### Floating Action Button (FAB)
+- Используй для главного действия на экране
+- Размещай в правом нижнем углу
+- Используй иконки Material Design
+
+#### IconButton
+- Для действий с иконками
+- Компактные кнопки для панелей инструментов
+
+### 3. Цветовая схема Material Design
+
+#### Основные цвета:
+- **Primary**: `#007AFF` (синий)
+- **Secondary**: `#FF9800` (оранжевый) 
+- **Success**: `#4CAF50` (зеленый)
+- **Error**: `#F44336` (красный)
+- **Warning**: `#FFC107` (желтый)
+
+#### Применение цветов:
+- Primary - для основных действий (сохранить, отправить)
+- Secondary - для вторичных действий
+- Success - для успешных операций
+- Error - для опасных действий (удалить, отменить)
+- Warning - для предупреждений
+
+### 4. Примеры использования
+
+#### Основная кнопка:
+```javascript
+<PaperButton
+  mode="contained"
+  onPress={handleAction}
+  style={styles.primaryButton}
+  contentStyle={styles.buttonContent}
+>
+  Сохранить
+</PaperButton>
+```
+
+#### Вторичная кнопка:
+```javascript
+<PaperButton
+  mode="outlined"
+  onPress={handleSecondaryAction}
+  style={styles.secondaryButton}
+>
+  Отмена
+</PaperButton>
+```
+
+#### FAB для главного действия:
+```javascript
+<FAB
+  icon="plus"
+  label="Добавить"
+  onPress={handleAdd}
+  style={styles.fab}
+  accessibilityLabel="Добавить элемент"
+/>
+```
+
+#### IconButton:
+```javascript
+<IconButton
+  icon="delete"
+  size={24}
+  onPress={handleDelete}
+  iconColor={colors.error}
+  accessibilityLabel="Удалить"
+/>
+```
+
+### 5. Стили для кнопок
+
+#### Основные стили:
+```javascript
+const styles = StyleSheet.create({
+  primaryButton: {
+    backgroundColor: colors.buttonPrimary,
+    borderRadius: borderRadius.sm,
+    marginBottom: spacing.lg,
+  },
+  secondaryButton: {
+    borderColor: colors.buttonSecondary,
+    borderWidth: 1,
+    borderRadius: borderRadius.sm,
+    marginBottom: spacing.lg,
+  },
+  fab: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: spacing.lg,
+    backgroundColor: colors.buttonPrimary,
+  },
+  buttonContent: {
+    paddingVertical: spacing.md,
+  },
+});
+```
+
+### 6. Состояния кнопок
+
+#### Загрузка:
+```javascript
+<PaperButton
+  mode="contained"
+  loading={isLoading}
+  disabled={isLoading}
+  onPress={handleAction}
+>
+  {isLoading ? 'Загрузка...' : 'Отправить'}
+</PaperButton>
+```
+
+#### Отключенное состояние:
+```javascript
+<PaperButton
+  mode="contained"
+  disabled={!isValid}
+  onPress={handleAction}
+>
+  Сохранить
+</PaperButton>
+```
+
+### 7. Доступность (Accessibility)
+
+Всегда добавляй `accessibilityLabel` для кнопок:
+```javascript
+<PaperButton
+  mode="contained"
+  onPress={handleAction}
+  accessibilityLabel="Сохранить изменения"
+  accessibilityHint="Нажмите для сохранения данных"
+>
+  Сохранить
+</PaperButton>
+```
+
+### 8. Иконки Material Design
+
+Используй иконки из Material Design Icons:
+- `plus` - добавить
+- `delete` - удалить
+- `edit` - редактировать
+- `save` - сохранить
+- `cancel` - отменить
+- `check` - подтвердить
+- `close` - закрыть
+- `menu` - меню
+- `account` - профиль
+- `settings` - настройки
+
+### 9. Размещение кнопок
+
+#### Группировка кнопок:
+```javascript
+<View style={styles.buttonGroup}>
+  <PaperButton
+    mode="outlined"
+    onPress={handleCancel}
+    style={styles.button}
+  >
+    Отмена
+  </PaperButton>
+  <PaperButton
+    mode="contained"
+    onPress={handleSave}
+    style={styles.button}
+  >
+    Сохранить
+  </PaperButton>
+</View>
+```
+
+#### Стили для группы:
+```javascript
+buttonGroup: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  gap: spacing.md,
+},
+button: {
+  flex: 1,
+},
+```
+
+### 10. Анимации и переходы
+
+Используй встроенные анимации Material Design:
+```javascript
+<PaperButton
+  mode="contained"
+  onPress={handleAction}
+  style={[
+    styles.button,
+    { transform: [{ scale: pressed ? 0.95 : 1 }] }
+  ]}
+>
+  Кнопка с анимацией
+</PaperButton>
+```
+
+### 11. Правила именования
+
+- Используй описательные имена для кнопок
+- Добавляй суффикс `Button` для стилей кнопок
+- Используй camelCase для имен функций обработчиков
+
+### 12. Обработка ошибок
+
+Всегда обрабатывай ошибки в обработчиках кнопок:
+```javascript
+const handleAction = async () => {
+  try {
+    setIsLoading(true);
+    await performAction();
+    // Успех
+  } catch (error) {
+    Alert.alert('Ошибка', error.message);
+  } finally {
+    setIsLoading(false);
+  }
+};
+```
+
+### 13. Тестирование
+
+Добавляй тестовые ID для кнопок:
+```javascript
+<PaperButton
+  mode="contained"
+  onPress={handleAction}
+  testID="save-button"
+  accessibilityLabel="Сохранить"
+>
+  Сохранить
+</PaperButton>
+```
+
+### 14. Производительность
+
+- Используй `useCallback` для обработчиков кнопок
+- Мемоизируй сложные вычисления в обработчиках
+- Избегай создания новых функций в render
+
+### 15. Консистентность
+
+- Используй одинаковые стили для одинаковых типов кнопок
+- Следуй единой цветовой схеме
+- Поддерживай единообразие в размерах и отступах

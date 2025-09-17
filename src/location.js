@@ -237,7 +237,7 @@ export async function initLocation() {
     return;
   }
   
-  // Получаем конфигурацию
+  // Получаем конфигурацию для текущего режима
   const geoConfig = getGeoConfig();
   
   // Получаем стабильный идентификатор устройства (ANDROID_ID/UniqueId)
@@ -251,7 +251,10 @@ export async function initLocation() {
   console.log('Initializing BackgroundGeolocation with canonical config:', {
       mode: __DEV__ ? 'TEST' : 'PRODUCTION',
       distanceFilter: geoConfig.DISTANCE_FILTER,
-      heartbeatInterval: 120, // 2 минуты = 120 секунд для регулярной отправки геолокации
+      heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
+      autoSyncThreshold: geoConfig.AUTO_SYNC_THRESHOLD,
+      batchSync: geoConfig.BATCH_SYNC,
+      autoSync: geoConfig.AUTO_SYNC,
       stopTimeout: 'default (5s)', // Используется значение по умолчанию
       license: currentLicense ? 'Present' : 'Missing'
     });
@@ -286,14 +289,15 @@ export async function initLocation() {
       
       // Notification Channel (Android O+) - обязательно для foreground service
       notification: {
-        title: "Отслеживание включено",
-        text: "Передача геоданных активна",
-        channelName: "Tracking",
+        title: "📍 Смена активна",
+        text: "Отслеживание местоположения",
+        channelName: "Location Tracking",
         smallIcon: "ic_stat_notify",
         priority: BGGeo.NOTIFICATION_PRIORITY_LOW,
         sticky: true,
         sound: null,  // Отключаем звук уведомления
-        vibrate: false  // Отключаем вибрацию
+        vibrate: false,  // Отключаем вибрацию
+        color: "#007AFF"  // Цвет уведомления
       },
       
       // Background Permission Rationale (Android 10+) - для запроса "Allow all the time"
@@ -313,15 +317,15 @@ export async function initLocation() {
       heartbeatInterval: 120, // 2 минуты = 120 секунд
 
       // Нативный uploader с батчингом
-      autoSync: true,
-      batchSync: true,
-      autoSyncThreshold: 25,
+      autoSync: geoConfig.AUTO_SYNC,
+      batchSync: geoConfig.BATCH_SYNC,
+      autoSyncThreshold: geoConfig.AUTO_SYNC_THRESHOLD,
       url: 'https://api.tabelshik.com/api/db_save/',
       httpTimeout: 60000,
       maxRecordsToPersist: 10000,
       headers: { 
         'Content-Type': 'application/json',
-        'Api-token': 'wqHJerK834'
+        'Authorization': 'Bearer wqHJerK834'
       },
       // Формирование тела запроса через locationTemplate + httpRootProperty + params
       method: 'POST',
@@ -329,7 +333,7 @@ export async function initLocation() {
       params: {
         api_token: 'wqHJerK834',
         user_id: currentUserId || 0,
-        place_id: currentPlaceId || 1,
+        place_id: currentPlaceId || 0,
         phone_imei: currentPhoneImei || 'unknown'
       },
       locationTemplate: createLocationTemplate(),
@@ -643,14 +647,15 @@ export async function startTracking(userId) {
     
     // Уведомление foreground-сервиса (Android O+)
     notification: {
-      title: "Отслеживание включено",
-      text: "Передача геоданных активна",
-      channelName: "Tracking",
+      title: "📍 Смена активна",
+      text: "Отслеживание местоположения",
+      channelName: "Location Tracking",
       smallIcon: "ic_stat_notify",
       priority: BGGeo.NOTIFICATION_PRIORITY_LOW,
       sticky: true,
       sound: null,  // Отключаем звук уведомления
-      vibrate: false  // Отключаем вибрацию
+      vibrate: false,  // Отключаем вибрацию
+      color: "#007AFF"  // Цвет уведомления
     },
     
     // Android тюнинг
@@ -683,7 +688,7 @@ export async function startTracking(userId) {
     
     headers: { 
       'Content-Type': 'application/json',
-      'Api-token': 'wqHJerK834'
+      'Authorization': 'Bearer wqHJerK834'
     },
     
     debug: __DEV__, // Включаем debug только в dev режиме
@@ -969,7 +974,7 @@ async function testRealApi() {
     console.log('📋 Headers:');
     console.log(JSON.stringify({
       'Content-Type': 'application/json',
-      'Api-token': 'wqHJerK834'
+      'Authorization': 'Bearer wqHJerK834'
     }, null, 2));
     console.log('='.repeat(80));
     
@@ -977,7 +982,7 @@ async function testRealApi() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Api-token': 'wqHJerK834'
+        'Authorization': 'Bearer wqHJerK834'
       },
       body: JSON.stringify(testGeoData)
     });

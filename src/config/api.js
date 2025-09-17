@@ -12,12 +12,13 @@ export const API_CONFIG = {
     UNBLOCK_REQUEST: '/api/unblock-requests/',
     USER_STATUS: '/api/users/',
     WORKSHIFTS: '/api/workshifts/',
+    SHIFTS: '/api/shifts/',
     PUNCHES: '/api/punches/',
     ACTIVE_SHIFT: '/api/active-shift/',
   },
   HEADERS: {
     'Content-Type': 'application/json',
-    'Api-token': 'wqHJerK834',
+    'Authorization': 'Bearer wqHJerK834',
   },
 };
 
@@ -27,7 +28,7 @@ export const getAuthHeaders = () => ({
 
 export const getApiTokenHeaders = () => ({
   'Content-Type': 'application/json',
-  'Api-token': API_CONFIG.API_TOKEN,
+  'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`,
 });
 
 
