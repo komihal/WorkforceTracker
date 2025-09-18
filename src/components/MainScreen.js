@@ -14,6 +14,7 @@ import {
   NativeModules,
   Linking,
   Modal,
+  RefreshControl,
 } from 'react-native';
 import { 
   Button as PaperButton, 
@@ -23,7 +24,8 @@ import {
   Card,
   Avatar,
   Provider as PaperProvider,
-  Appbar
+  Appbar,
+  Icon
 } from 'react-native-paper';
 import { StatusBar } from 'react-native';
 import authService from '../services/authService';
@@ -48,6 +50,7 @@ import { colors, shadows } from '../styles/colors';
 
 const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [showAlwaysBanner, setShowAlwaysBanner] = useState(false);
   const isShiftActive = useShiftStore(s => s.isActive);
   const [currentUser, setCurrentUser] = useState(null);
@@ -60,6 +63,7 @@ const MainScreen = ({ onLogout }) => {
   const [shiftStart, setShiftStart] = useState(null);
   const [lastRequestAt, setLastRequestAt] = useState(null);
   const [onSite, setOnSite] = useState(null);
+  const [shiftDuration, setShiftDuration] = useState(null);
   const [showAccessPanel, setShowAccessPanel] = useState(false);
   const [selectedAccessKey, setSelectedAccessKey] = useState(null);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
@@ -74,6 +78,183 @@ const MainScreen = ({ onLogout }) => {
   const [showHeaderBadges, setShowHeaderBadges] = useState(false);
   const [shiftsList, setShiftsList] = useState([]);
   // Селфи-модал отключен, используем image-picker
+
+  // Функция для сортировки смен от самого позднего к раннему
+  const sortShiftsByDate = useCallback((shifts) => {
+    const sorted = shifts.sort((a, b) => {
+      // Получаем даты для сравнения
+      const dateA = a.shift_start || a.date || '';
+      const dateB = b.shift_start || b.date || '';
+      
+      // Сортируем от нового к старому (поздний к раннему)
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    });
+    
+    if (__DEV__ && sorted.length > 0) {
+      console.log('[SortShifts] Sorted shifts by date (newest first):', 
+        sorted.slice(0, 3).map(s => ({ 
+          date: s.shift_start || s.date, 
+          duration: s.duration_hours 
+        }))
+      );
+    }
+    
+    return sorted;
+  }, []);
+
+  // Функция для открытия диалогов разрешений
+  const handlePermissionsDialog = useCallback(async () => {
+    try {
+      console.log('[Permissions] ===== STARTING PERMISSIONS DIALOG =====');
+      console.log('[Permissions] Current indicators state:', JSON.stringify(indicators, null, 2));
+      
+      // Проверяем текущее состояние всех разрешений
+      const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
+      let hasLocationPermission = false;
+      let hasBackgroundPermission = false;
+      let hasNotificationPermission = true; // по умолчанию true для старых версий
+      let hasBatteryOptimization = true; // по умолчанию true для iOS
+      
+      if (Platform.OS === 'android') {
+        const fine = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
+        const bg = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+        hasLocationPermission = fine === RESULTS.GRANTED;
+        hasBackgroundPermission = bg === RESULTS.GRANTED;
+        
+        // Проверяем разрешения на уведомления для Android 13+
+        if (Platform.Version >= 33) {
+          const notif = await check(PERMISSIONS.ANDROID.POST_NOTIFICATIONS);
+          hasNotificationPermission = notif === RESULTS.GRANTED;
+        }
+        
+        // Проверяем оптимизацию батареи
+        try {
+          const { getBatteryWhitelistStatus } = require('../location.js');
+          const status = await getBatteryWhitelistStatus();
+          hasBatteryOptimization = !!status?.ignored;
+        } catch (e) {
+          console.log('[Permissions] Battery optimization check failed:', e);
+        }
+      } else {
+        const whenInUse = await check(PERMISSIONS.IOS.LOCATION_WHEN_IN_USE);
+        const always = await check(PERMISSIONS.IOS.LOCATION_ALWAYS);
+        hasLocationPermission = whenInUse === RESULTS.GRANTED;
+        hasBackgroundPermission = always === RESULTS.GRANTED;
+      }
+      
+      console.log('[Permissions] Current state:', {
+        location: hasLocationPermission,
+        background: hasBackgroundPermission,
+        notifications: hasNotificationPermission,
+        battery: hasBatteryOptimization
+      });
+      
+      // Определяем, какие разрешения отсутствуют
+      const missingPermissions = [];
+      if (!hasLocationPermission) missingPermissions.push('геолокация');
+      if (!hasBackgroundPermission) missingPermissions.push('фоновая геолокация');
+      if (!hasNotificationPermission) missingPermissions.push('уведомления');
+      if (!hasBatteryOptimization) missingPermissions.push('оптимизация батареи');
+      
+      console.log('[Permissions] Missing permissions:', missingPermissions);
+      
+      // Если все разрешения есть, показываем информационное сообщение
+      if (missingPermissions.length === 0) {
+        Alert.alert(
+          'Разрешения настроены',
+          'Все необходимые разрешения уже предоставлены. Приложение готово к работе.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // Показываем диалог с отсутствующими разрешениями
+      const missingText = missingPermissions.join(', ');
+      Alert.alert(
+        'Необходимы разрешения',
+        `Для корректной работы приложения необходимо настроить: ${missingText}. Хотите открыть настройки разрешений?`,
+        [
+          { text: 'Отмена', style: 'cancel' },
+          { 
+            text: 'Настроить', 
+            onPress: async () => {
+              console.log('[Permissions] User confirmed - opening permission dialogs');
+              
+              // Запрашиваем разрешения по порядку
+              if (!hasLocationPermission || !hasBackgroundPermission) {
+                console.log('[Permissions] Requesting location permissions');
+                try {
+                  await requestBackgroundLocationTwoClicks();
+                  console.log('[Permissions] Location permissions dialog completed');
+                } catch (error) {
+                  console.error('[Permissions] Error requesting location permissions:', error);
+                }
+              }
+              
+              if (!hasNotificationPermission) {
+                console.log('[Permissions] Requesting notification permission');
+                try {
+                  await checkNotificationsPermissionOnAppActive();
+                  console.log('[Permissions] Notification permission dialog completed');
+                } catch (error) {
+                  console.error('[Permissions] Error requesting notification permission:', error);
+                }
+              }
+              
+              if (!hasBatteryOptimization) {
+                console.log('[Permissions] Requesting battery optimization');
+                try {
+                  // Добавляем небольшую задержку перед запросом оптимизации батареи
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                  
+                  const { ensureBatteryWhitelistUI } = require('../location.js');
+                  await ensureBatteryWhitelistUI();
+                  console.log('[Permissions] Battery optimization dialog opened');
+                  
+                  // Показываем информационное сообщение пользователю
+                  Alert.alert(
+                    'Настройка оптимизации батареи',
+                    'В открывшемся окне найдите приложение "Workforce Tracker" и включите "Разрешить" или "Не оптимизировать". Это необходимо для корректной работы приложения в фоновом режиме.',
+                    [
+                      { text: 'Понятно' },
+                      { 
+                        text: 'Открыть настройки', 
+                        onPress: () => {
+                          console.log('[Permissions] Opening app settings as fallback');
+                          Linking.openSettings().catch(() => {
+                            console.log('[Permissions] Failed to open settings');
+                          });
+                        }
+                      }
+                    ]
+                  );
+                } catch (error) {
+                  console.error('[Permissions] Error opening battery optimization:', error);
+                  Alert.alert('Ошибка', 'Не удалось открыть настройки оптимизации батареи. Попробуйте открыть настройки вручную: Настройки → Приложения → Workforce Tracker → Батарея → Не оптимизировать');
+                }
+              }
+              
+              // Обновляем индикаторы после запроса разрешений
+              console.log('[Permissions] Refreshing indicators after permission requests');
+              await refreshIndicators();
+              
+              // Добавляем дополнительную задержку и повторное обновление
+              setTimeout(async () => {
+                console.log('[Permissions] Second refresh after delay');
+                await refreshIndicators();
+              }, 2000);
+              
+              console.log('[Permissions] All permission dialogs completed');
+            }
+          }
+        ]
+      );
+      
+    } catch (error) {
+      console.error('[Permissions] Error in permissions dialog:', error);
+      Alert.alert('Ошибка', 'Не удалось открыть настройки разрешений');
+    }
+  }, [refreshIndicators, requestBatteryOptimization, indicators]);
 
   const captureSelfie = async () => {
     try {
@@ -148,6 +329,25 @@ const MainScreen = ({ onLogout }) => {
             const lrServer = data?.worker?.last_geo_timestamp || data?.last_request || null;
             // setLastRequestAt(lrLocal || lrServer || null);
              setLastRequestAt(lrServer || null);
+          } catch {}
+          
+          // Вычисляем продолжительность смены от начала до последней точки
+          try {
+            const startTime = hasActiveShift ? (data?.active_shift?.shift_start || null) : null;
+            const lastTime = data?.worker?.last_geo_timestamp || data?.last_request || null;
+            
+            if (startTime && lastTime) {
+              const start = new Date(startTime).getTime();
+              const last = new Date(lastTime).getTime();
+              if (!isNaN(start) && !isNaN(last) && last > start) {
+                const durationHours = (last - start) / (1000 * 60 * 60);
+                setShiftDuration(durationHours);
+              } else {
+                setShiftDuration(null);
+              }
+            } else {
+              setShiftDuration(null);
+            }
           } catch {}
           
           setUserStatus(normalizeStatus(workerStatus));
@@ -300,13 +500,17 @@ const MainScreen = ({ onLogout }) => {
         if (Platform.OS === 'android') {
           const bg = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
           const fine = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
-          permissionOk = (bg === RESULTS.GRANTED) || (fine === RESULTS.GRANTED);
+          permissionOk = (bg === RESULTS.GRANTED) && (fine === RESULTS.GRANTED);
+          console.log('[Permissions] Android - Background:', bg, 'Fine:', fine, 'PermissionOk:', permissionOk);
         } else {
           const always = await check(PERMISSIONS.IOS.LOCATION_ALWAYS);
           const whenInUse = await check(PERMISSIONS.IOS.LOCATION_WHEN_IN_USE);
-          permissionOk = (always === RESULTS.GRANTED) || (whenInUse === RESULTS.GRANTED);
+          permissionOk = (always === RESULTS.GRANTED) && (whenInUse === RESULTS.GRANTED);
+          console.log('[Permissions] iOS - Always:', always, 'WhenInUse:', whenInUse, 'PermissionOk:', permissionOk);
         }
-      } catch {}
+      } catch (e) {
+        console.log('[Permissions] Error checking permissions:', e);
+      }
 
       let batteryOk = true;
       try {
@@ -337,7 +541,18 @@ const MainScreen = ({ onLogout }) => {
         gpsOk = await deviceUtils.isLocationAvailable();
       } catch {}
 
-      setIndicators({ gps: !!gpsOk, network: !!networkOk, battery: !!batteryOk, permission: !!permissionOk, notifications: !!notificationsOk });
+      const newIndicators = { gps: !!gpsOk, network: !!networkOk, battery: !!batteryOk, permission: !!permissionOk, notifications: !!notificationsOk };
+      console.log('[Indicators] Updated indicators:', JSON.stringify(newIndicators, null, 2));
+      
+      // Проверяем, изменились ли индикаторы
+      const hasChanges = Object.keys(newIndicators).some(key => newIndicators[key] !== indicators[key]);
+      if (hasChanges) {
+        console.log('[Indicators] Indicators changed, updating state');
+      } else {
+        console.log('[Indicators] No changes in indicators');
+      }
+      
+      setIndicators(newIndicators);
 
       // Индикатор "на объекте" (заглушка через env: SITE_LAT, SITE_LON, SITE_RADIUS_M)
       try {
@@ -364,6 +579,84 @@ const MainScreen = ({ onLogout }) => {
       // fail-safe: не обновляем state при исключениях
     }
   }, []);
+
+  // Функция для обновления всех данных при pull-to-refresh
+  const refreshAllData = useCallback(async () => {
+    if (!currentUser?.user_id || !shiftStatusManager) {
+      console.log('[MainScreen] refreshAllData: missing user or shiftStatusManager');
+      return;
+    }
+
+    console.log('[MainScreen] refreshAllData: starting refresh...');
+    
+    try {
+      // 1. Обновляем статус смены
+      console.log('[MainScreen] refreshAllData: refreshing shift status...');
+      const { refreshShiftStatusNow } = require('../services/shiftStatusService');
+      const shiftStatus = await refreshShiftStatusNow(currentUser.user_id);
+      
+      if (shiftStatusManager && shiftStatusManager.updateUI) {
+        shiftStatusManager.updateUI(shiftStatus);
+      }
+      
+      // 2. Обновляем профиль пользователя
+      console.log('[MainScreen] refreshAllData: refreshing user profile...');
+      const user = await authService.getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+        currentUserIdRef.current = user.user_id;
+      }
+      
+      // 3. Обновляем список смен
+      console.log('[MainScreen] refreshAllData: refreshing shifts list...');
+      const { API_CONFIG } = require('../config/api');
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SHIFTS}?user_id=${encodeURIComponent(currentUser.user_id)}&aggregate=1`;
+      
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 
+          'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`
+        }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        let shifts = [];
+        
+        if (data.aggregate && Array.isArray(data.items)) {
+          shifts = data.items.map((it) => ({
+            shift_start: it.date ? `${it.date}T00:00:00Z` : null,
+            duration_hours: typeof it.total_hours === 'number' ? it.total_hours : null,
+            date: it.date,
+            day_hours: it.day_hours,
+            night_hours: it.night_hours,
+            day_shifts_count: it.day_shifts_count,
+            night_shifts_count: it.night_shifts_count,
+            is_aggregate: true,
+          }));
+        } else if (data.success && Array.isArray(data.shifts)) {
+          shifts = data.shifts;
+        } else if (Array.isArray(data)) {
+          shifts = data;
+        } else if (Array.isArray(data?.results)) {
+          shifts = data.results;
+        }
+        
+        // Сортируем смены от самого позднего к раннему
+        const sortedShifts = sortShiftsByDate([...shifts]);
+        setShiftsList(sortedShifts);
+        console.log('[MainScreen] refreshAllData: updated shifts list:', sortedShifts.length, 'items');
+      }
+      
+      // 4. Обновляем индикаторы
+      console.log('[MainScreen] refreshAllData: refreshing indicators...');
+      await refreshIndicators();
+      
+      console.log('[MainScreen] refreshAllData: completed successfully');
+    } catch (error) {
+      console.error('[MainScreen] refreshAllData error:', error);
+    }
+  }, [currentUser, shiftStatusManager, refreshIndicators]);
 
   useEffect(() => {
     // первичное обновление и периодический опрос
@@ -574,6 +867,86 @@ const MainScreen = ({ onLogout }) => {
     } catch (error) {
       if (preStarted && stopTrackingRef) { try { await stopTrackingRef(); } catch {} }
       Alert.alert('Ошибка', 'Не удалось начать смену');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Запрос на разблокировку
+  const handleRequestUnblock = async () => {
+    if (!currentUser) return;
+    setIsLoading(true);
+    try {
+      const res = await punchService.requestUnblock(currentUser.user_id || 123);
+      if (res.success) {
+        Alert.alert('Готово', 'Запрос на разблокировку отправлен');
+        // Статус пользователя обновится автоматически через ShiftStatusManager
+      } else {
+        Alert.alert(
+          'Ошибка отправки запроса', 
+          res.error || 'Не удалось отправить запрос',
+          [
+            { text: 'Повторить', onPress: () => {
+              // Рекурсивно вызываем функцию для повтора
+              setTimeout(() => {
+                if (currentUser) {
+                  const retryUnblock = async () => {
+                    setIsLoading(true);
+                    try {
+                      const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
+                      if (retryRes.success) {
+                        Alert.alert('Готово', 'Запрос на разблокировку отправлен');
+                        // Статус пользователя обновится автоматически через ShiftStatusManager
+                      } else {
+                        Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
+                      }
+                    } catch (e) {
+                      Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  };
+                  retryUnblock();
+                }
+              }, 100);
+            }},
+            { text: 'Отмена', style: 'cancel' }
+          ]
+        );
+      }
+    } catch (e) {
+      console.error('Request unblock error:', e);
+      Alert.alert(
+        'Ошибка сети', 
+        'Не удалось отправить запрос. Проверьте интернет-соединение.',
+        [
+          { text: 'Повторить', onPress: () => {
+            // Рекурсивно вызываем функцию для повтора
+            setTimeout(() => {
+              if (currentUser) {
+                const retryUnblock = async () => {
+                  setIsLoading(true);
+                  try {
+                    const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
+                    if (retryRes.success) {
+                      Alert.alert('Готово', 'Запрос на разблокировку отправлен');
+                      // Статус пользователя обновится автоматически через ShiftStatusManager
+                    } else {
+                      Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
+                    }
+                  } catch (e) {
+                    Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
+                  } finally {
+                    setIsLoading(false);
+                  }
+                };
+                retryUnblock();
+              }
+            }, 100);
+          }},
+          { text: 'Отмена', style: 'cancel' }
+        ]
+      );
     } finally {
       setIsLoading(false);
     }
@@ -949,6 +1322,16 @@ const MainScreen = ({ onLogout }) => {
     } catch { return '—'; }
   };
 
+  const formatHours = (hours) => {
+    try {
+      if (!hours || typeof hours !== 'number' || isNaN(hours)) return '—';
+      const totalMinutes = Math.round(hours * 60);
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      return `${h}:${m.toString().padStart(2, '0')}`;
+    } catch { return '—'; }
+  };
+
   useEffect(() => {
     const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
     const getMonthRange = (offset) => {
@@ -1087,8 +1470,10 @@ const MainScreen = ({ onLogout }) => {
             shifts = data.results;
           }
           
-          console.log('[MainScreen] fetchUserShifts: processed shifts:', shifts.length, 'items');
-          setShiftsList(shifts);
+          // Сортируем смены от самого позднего к раннему
+          const sortedShifts = sortShiftsByDate([...shifts]);
+          console.log('[MainScreen] fetchUserShifts: processed shifts:', sortedShifts.length, 'items');
+          setShiftsList(sortedShifts);
         } else {
           console.log('[MainScreen] fetchUserShifts: response not ok:', res.status, res.statusText);
           try {
@@ -1120,11 +1505,11 @@ const MainScreen = ({ onLogout }) => {
       <SafeAreaView style={styles.container}>
         {/* Appbar из React Native Paper вместо черной полоски */}
         <Appbar.Header style={styles.appbarHeader}>
-          <Appbar.Content title={missingBadges.length > 0 && (
+          {/* <Appbar.Content title={missingBadges.length > 0 && (
               <TouchableOpacity onPress={() => setShowHeaderBadges(v => !v)} style={styles.appbarBadge} accessibilityLabel="Проблемы с доступами">
                 <Text style={styles.appbarBadgeText}>!</Text>
               </TouchableOpacity>
-          )} titleStyle={styles.appbarTitle} />         
+          )} titleStyle={styles.appbarTitle} />          */}
           <View style={styles.appbarRightContent}>
 
             <Chip 
@@ -1132,8 +1517,8 @@ const MainScreen = ({ onLogout }) => {
               style={[
                 styles.statusChip,
                 { 
-                  backgroundColor: userStatus === WorkerStatus.WORKING ? '#4CAF50' : 
-                                  (userStatus === WorkerStatus.BLOCKED || userStatus === WorkerStatus.FIRED) ? '#F44336' : '#FF9800'
+                  backgroundColor: userStatus === WorkerStatus.WORKING ? 'rgba(76, 175, 80, 0.8)' : 
+                                  (userStatus === WorkerStatus.BLOCKED || userStatus === WorkerStatus.FIRED) ? 'rgba(244, 67, 54, 0.8)' : 'rgba(255, 152, 0, 0.8)'
                 }
               ]}
               textStyle={styles.statusChipText}
@@ -1151,6 +1536,154 @@ const MainScreen = ({ onLogout }) => {
             />
           </View>
         </Appbar.Header>
+
+        {/* Уведомление о заблокированном пользователе */}
+        {userStatus === WorkerStatus.BLOCKED && (
+          <Card style={{ 
+            margin: 16, 
+            backgroundColor: '#FFEBEE', 
+            borderLeftWidth: 4, 
+            borderLeftColor: '#F44336' 
+          }}>
+            <Card.Content style={{ paddingVertical: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <IconButton 
+                  icon="lock" 
+                  size={24} 
+                  iconColor="#F44336" 
+                  style={{ margin: 0, marginRight: 12 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ 
+                    color: '#D32F2F', 
+                    fontSize: 16, 
+                    fontWeight: '700',
+                    marginBottom: 4
+                  }}>
+                    Пользователь заблокирован
+                  </Text>
+                  <Text style={{ 
+                    color: '#B71C1C', 
+                    fontSize: 14,
+                    lineHeight: 20
+                  }}>
+                    Ваш пользователь был заблокирован администратором. Обратитесь к администратору для разблокировки.
+                  </Text>
+                </View>
+              </View>
+            </Card.Content>
+          </Card>
+        )}
+
+        {/* Уведомление о разрешениях */}
+        {(!indicators.permission || !indicators.battery || !indicators.notifications) && (
+          <TouchableOpacity 
+            onPress={handlePermissionsDialog}
+            activeOpacity={0.7}
+          >
+            <Card style={{ 
+              margin: 12, 
+              backgroundColor: '#FFF3E0', 
+              borderLeftWidth: 4, 
+              borderLeftColor: '#FF9800',
+              elevation: 2,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.2,
+              shadowRadius: 2,
+            }}>
+              <Card.Content style={{ paddingVertical: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <IconButton 
+                    icon="shield-alert" 
+                    size={24} 
+                    iconColor="#FF9800" 
+                    style={{ margin: 0, marginRight: 12 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ 
+                      color: '#E65100', 
+                      fontSize: 16, 
+                      fontWeight: '700',
+                      marginBottom: 4
+                    }}>
+                      Включите все разрешения
+                    </Text>
+                    <Text style={{ 
+                      color: '#BF360C', 
+                      fontSize: 14,
+                      lineHeight: 20
+                    }}>
+                      Нажмите для настройки всех необходимых разрешений
+                      {__DEV__ && ` (Debug: perm=${indicators.permission}, bat=${indicators.battery}, notif=${indicators.notifications})`}
+                    </Text>
+                  </View>
+                  <IconButton 
+                    icon="chevron-right" 
+                    size={20} 
+                    iconColor="#FF9800" 
+                    style={{ margin: 0 }}
+                  />
+                </View>
+              </Card.Content>
+            </Card>
+          </TouchableOpacity>
+        )}
+
+        {/* Dev режим - тестовое уведомление о разрешениях */}
+        {__DEV__ && (
+          <TouchableOpacity 
+            onPress={handlePermissionsDialog}
+            activeOpacity={0.7}
+          >
+            <Card style={{ 
+              margin: 12, 
+              backgroundColor: '#E3F2FD', 
+              borderLeftWidth: 4, 
+              borderLeftColor: '#2196F3',
+              elevation: 1,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.1,
+              shadowRadius: 1,
+            }}>
+              <Card.Content style={{ paddingVertical: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <IconButton 
+                    icon="bug" 
+                    size={20} 
+                    iconColor="#2196F3" 
+                    style={{ margin: 0, marginRight: 12 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ 
+                      color: '#1976D2', 
+                      fontSize: 14, 
+                      fontWeight: '700',
+                      marginBottom: 2
+                    }}>
+                      DEV: Тест разрешений
+                    </Text>
+                    <Text style={{ 
+                      color: '#1565C0', 
+                      fontSize: 12,
+                      lineHeight: 16
+                    }}>
+                      Нажмите для тестирования диалогов разрешений
+                      {` (perm=${indicators.permission}, bat=${indicators.battery}, notif=${indicators.notifications})`}
+                    </Text>
+                  </View>
+                  <IconButton 
+                    icon="chevron-right" 
+                    size={16} 
+                    iconColor="#2196F3" 
+                    style={{ margin: 0 }}
+                  />
+                </View>
+              </Card.Content>
+            </Card>
+          </TouchableOpacity>
+        )}
 
         {/* Выпадающее меню профиля */}
         {menuModalVisible && (
@@ -1170,7 +1703,7 @@ const MainScreen = ({ onLogout }) => {
                   ]);
                 }}
               >
-                <Text style={styles.menuItemIcon}>👤</Text>
+                <Icon source="account" size={20} color={colors.textPrimary} style={styles.menuItemIcon} />
                 <Text style={styles.menuItemText}>Посмотреть профиль</Text>
               </TouchableOpacity>
               
@@ -1181,69 +1714,33 @@ const MainScreen = ({ onLogout }) => {
                   handleLogout();
                 }}
               >
-                <Text style={styles.menuItemIcon}>🚪</Text>
+                <Icon source="logout" size={20} color={colors.buttonLogout} style={styles.menuItemIcon} />
                 <Text style={[styles.menuItemText, styles.menuLogoutText]}>Выход</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-      <ScrollView style={styles.content}>
-        {/* Показ badges доступов прямо в хедере (по нажатию на ! слева от ФИО) */}
-        {showHeaderBadges && missingBadges.length > 0 && (
-            <View style={[styles.badgeRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
-              {missingBadges.map(b => (
-                <View key={b.key} style={styles.badge}>
-                  <TouchableOpacity onPress={b.onPress}>
-                    <Text style={styles.badgeText}>{b.label}</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-        {/* Статистика перенесена на отдельную вкладку */}
-
-        {/* Короткие индикаторы скрыты */}
-
-        {/* Блок с деталями пользователя удалён (expand убран) */}
-
-        {/* Показываем только badge для отсутствующих доступов */}
-        {/* Badges теперь показываются через глаз в шапке пользователя */}
-
-
-        {/* Модалка доступов (по badge/значку) */}
-        <Modal visible={accessModalVisible} transparent animationType="fade" onRequestClose={() => setAccessModalVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.accessPanel}>
-              <View style={styles.accessHeader}>
-                <Text style={styles.accessTitle}>Доступы</Text>
-                <TouchableOpacity onPress={() => setAccessModalVisible(false)}>
-                  <Text style={styles.accessClose}>Закрыть</Text>
-                </TouchableOpacity>
-              </View>
-              {[
-                { key: 'permission', label: 'Гео‑разрешения', ok: indicators.permission, action: requestBackgroundLocationTwoClicks },
-                { key: 'gps', label: 'GPS', ok: indicators.gps, action: () => Linking.openSettings().catch(() => {}) },
-                { key: 'network', label: 'Сеть', ok: indicators.network, action: () => Linking.openSettings().catch(() => {}) },
-                { key: 'battery', label: 'Энергосбережение', ok: indicators.battery, action: requestBatteryOptimization },
-                { key: 'notifications', label: 'Уведомления', ok: indicators.notifications, action: checkNotificationsPermissionOnAppActive },
-              ].map(item => (
-                <View key={item.key} style={styles.accessRow}>
-                  <Text style={styles.accessLabel}>{item.label}</Text>
-                  <View style={styles.accessRight}>
-                    <Text style={[styles.accessStatus, item.ok ? styles.ok : styles.bad]}>{item.ok ? 'ОК' : 'Нет'}</Text>
-                    {!item.ok && (
-                      <TouchableOpacity onPress={() => { item.action(); }} style={styles.accessBtn}>
-                        <Text style={styles.accessBtnText}>Настроить</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        </Modal>
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              try {
+                await refreshAllData();
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+            colors={['#4CAF50']} // Android
+            tintColor="#4CAF50" // iOS
+            title="Обновление..." // iOS
+            titleColor="#666" // iOS
+          />
+        }
+      >
 
         <View style={[styles.statusCard]}>
           <Chip
@@ -1272,16 +1769,10 @@ const MainScreen = ({ onLogout }) => {
               <Text style={styles.detailValue}>{formatIso(lastRequestAt)}</Text>
             </View>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>На объекте</Text>
-              <Text style={styles.detailValue}>{onSite === null ? '—' : (onSite ? 'Да' : 'Нет')}</Text>
+              <Text style={styles.detailLabel}>Продолжительность</Text>
+              <Text style={styles.detailValue}>{formatHours(shiftDuration)}</Text>
             </View>
           </View>
-          {userStatus === WorkerStatus.BLOCKED && (
-            <Text style={{ color: 'crimson', fontSize: 14, marginTop: 10, textAlign: 'center', fontWeight: '600' }}>
-              ⚠️ ВНИМАНИЕ: Пользователь заблокирован!
-            </Text>
-          )}
-
         </View>
         {/* Таблица смен пользователя */}
         <View style={[styles.statusCard]}>
@@ -1290,8 +1781,8 @@ const MainScreen = ({ onLogout }) => {
             <View>
               <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 6 }}>
                 <Text style={{ width: 100, fontWeight: '700', fontSize: 14 }}>Дата</Text>
-                <Text style={{ width: 90, fontWeight: '700', fontSize: 14 }}>Часы (всего)</Text>
-                <Text style={{ width: 120, fontWeight: '700', fontSize: 14 }}>Утверждено (ч)</Text>
+                <Text style={{ width: 90, fontWeight: '700', fontSize: 14 }}>Часы</Text>
+                <Text style={{ width: 120, fontWeight: '700', fontSize: 14 }}>Утверждено</Text>
               </View>
               {shiftsList && shiftsList.length > 0 ? (
                 shiftsList.map((shift, idx) => {
@@ -1313,8 +1804,8 @@ const MainScreen = ({ onLogout }) => {
                   return (
                     <View key={shift.shift_id || shift.id || idx} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderColor: '#f5f5f5' }}>
                       <Text style={{ width: 100 }}>{formatDate(shift.shift_start)}</Text>
-                      <Text style={{ width: 90 }}>{totalHours ? totalHours.toFixed(1) : '—'}</Text>
-                      <Text style={{ width: 120 }}>{approvedHours ? approvedHours.toFixed(1) : '—'}</Text>
+                      <Text style={{ width: 90 }}>{formatHours(totalHours)}</Text>
+                      <Text style={{ width: 120 }}>{formatHours(approvedHours)}</Text>
                     </View>
                   );
                 })
@@ -1325,11 +1816,6 @@ const MainScreen = ({ onLogout }) => {
               )}
             </View>
           </ScrollView>
-          {userStatus === WorkerStatus.BLOCKED && (
-            <Text style={{ color: 'crimson', fontSize: 14, marginTop: 10, textAlign: 'center', fontWeight: '600' }}>
-              ⚠️ ВНИМАНИЕ: Пользователь заблокирован!
-            </Text>
-          )}
         </View>
 
         <View style={styles.actions}>
@@ -1338,101 +1824,33 @@ const MainScreen = ({ onLogout }) => {
               <View />
             ) : (
               <View>
-                <Text style={{ color: 'crimson', textAlign: 'center', marginBottom: 10 }}>
-                  {userStatus === WorkerStatus.BLOCKED
-                    ? 'Ваш пользователь был заблокирован администратором'
-                    : 'Ваш пользователь уволен'}
-                </Text>
-                {userStatus === WorkerStatus.BLOCKED ? (
-                  <TouchableOpacity
-                    style={[styles.button, styles.punchInButton, isLoading && styles.buttonDisabled]}
-                    onPress={async () => {
-                      if (!currentUser) return;
-                      setIsLoading(true);
-                      try {
-                        const res = await punchService.requestUnblock(currentUser.user_id || 123);
-                        if (res.success) {
-                          Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                          // Статус пользователя обновится автоматически через ShiftStatusManager
-                        } else {
-                          Alert.alert(
-                            'Ошибка отправки запроса', 
-                            res.error || 'Не удалось отправить запрос',
-                            [
-                              { text: 'Повторить', onPress: () => {
-                                // Рекурсивно вызываем функцию для повтора
-                                setTimeout(() => {
-                                  if (currentUser) {
-                                    const retryUnblock = async () => {
-                                      setIsLoading(true);
-                                      try {
-                                        const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
-                                        if (retryRes.success) {
-                                          Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                                          // Статус пользователя обновится автоматически через ShiftStatusManager
-                                        } else {
-                                          Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
-                                        }
-                                      } catch (e) {
-                                        Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
-                                      } finally {
-                                        setIsLoading(false);
-                                      }
-                                    };
-                                    retryUnblock();
-                                  }
-                                }, 100);
-                              }},
-                              { text: 'Отмена', style: 'cancel' }
-                            ]
-                          );
-                        }
-                      } catch (e) {
-                        console.error('Request unblock error:', e);
-                        Alert.alert(
-                          'Ошибка сети', 
-                          'Не удалось отправить запрос. Проверьте интернет-соединение.',
-                          [
-                            { text: 'Повторить', onPress: () => {
-                              // Рекурсивно вызываем функцию для повтора
-                              setTimeout(() => {
-                                if (currentUser) {
-                                  const retryUnblock = async () => {
-                                    setIsLoading(true);
-                                    try {
-                                      const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
-                                      if (retryRes.success) {
-                                        Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                                        // Статус пользователя обновится автоматически через ShiftStatusManager
-                                      } else {
-                                        Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
-                                      }
-                                    } catch (e) {
-                                      Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
-                                    } finally {
-                                      setIsLoading(false);
-                                    }
-                                  };
-                                  retryUnblock();
-                                }
-                              }, 100);
-                            }},
-                            { text: 'Отмена', style: 'cancel' }
-                          ]
-                        );
-                      } finally {
-                        setIsLoading(false);
-                      }
-                    }}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.buttonText}>Отправить запрос на разблокировку</Text>
-                    )}
-                  </TouchableOpacity>
-                ) : null}
+                {userStatus === WorkerStatus.FIRED && (
+                  <Card style={{ 
+                    marginBottom: 10, 
+                    backgroundColor: '#FFF3E0', 
+                    borderLeftWidth: 4, 
+                    borderLeftColor: '#FF9800' 
+                  }}>
+                    <Card.Content style={{ paddingVertical: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <IconButton 
+                          icon="account-remove" 
+                          size={20} 
+                          iconColor="#FF9800" 
+                          style={{ margin: 0, marginRight: 8 }}
+                        />
+                        <Text style={{ 
+                          color: '#E65100', 
+                          fontSize: 14, 
+                          fontWeight: '600',
+                          flex: 1
+                        }}>
+                          Ваш пользователь уволен
+                        </Text>
+                      </View>
+                    </Card.Content>
+                  </Card>
+                )}
               </View>
             )
           ) : (
@@ -1483,6 +1901,19 @@ const MainScreen = ({ onLogout }) => {
             loading={isLoading}
             style={[styles.fabButtonClose, { backgroundColor: '#F44336' }]}
             accessibilityLabel="Закрыть смену"
+          />
+        </View>
+      )}
+      {!isShiftActive && userStatus === WorkerStatus.BLOCKED && (
+        <View style={styles.fabContainer} pointerEvents={isLoading ? 'none' : 'auto'}>
+          <FAB
+            icon="lock-open"
+            label="Запрос на разблокировку"
+            onPress={handleRequestUnblock}
+            disabled={isLoading}
+            loading={isLoading}
+            style={[styles.fabButton, { backgroundColor: '#FF9800' }]}
+            accessibilityLabel="Отправить запрос на разблокировку"
           />
         </View>
       )}

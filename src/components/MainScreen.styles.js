@@ -19,8 +19,6 @@ export const styles = StyleSheet.create({
   ...statusBarStyles,
   content: {
     flex: 1,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.lg,
   },
   
   // FAB (Floating Action Button) контейнер - оставляем только контейнер
@@ -711,7 +709,6 @@ export const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   menuItemIcon: {
-    fontSize: 20,
     marginRight: spacing.md,
     width: 24,
     textAlign: 'center',
