@@ -22,7 +22,8 @@ import {
   Chip,
   Card,
   Avatar,
-  Provider as PaperProvider
+  Provider as PaperProvider,
+  Appbar
 } from 'react-native-paper';
 import { StatusBar } from 'react-native';
 import authService from '../services/authService';
@@ -970,7 +971,7 @@ const MainScreen = ({ onLogout }) => {
         
         // Получаем смены пользователя через новый endpoint
         const shiftsRes = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SHIFTS}?user_id=${userId}`, {
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Token ${API_CONFIG.API_TOKEN}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_CONFIG.API_TOKEN}` },
         });
         
         let list = [];
@@ -1041,14 +1042,19 @@ const MainScreen = ({ onLogout }) => {
         
         console.log('[MainScreen] fetchUserShifts: starting for userId:', userId);
         const { API_CONFIG } = require('../config/api');
-        const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SHIFTS}?user_id=${userId}&aggregate=1`;
+        const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SHIFTS}?user_id=${encodeURIComponent(userId)}&aggregate=1`;
         console.log('[MainScreen] fetchUserShifts: URL:', url);
+        console.log('[MainScreen] fetchUserShifts: API_TOKEN:', API_CONFIG.API_TOKEN);
         
         const res = await fetch(url, {
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Token ${API_CONFIG.API_TOKEN}` },
+          method: 'GET',
+          headers: { 
+            'Authorization': `Bearer ${API_CONFIG.API_TOKEN}`
+          }
         });
         
         console.log('[MainScreen] fetchUserShifts: response status:', res.status);
+        console.log('[MainScreen] fetchUserShifts: response headers:', res.headers);
         
         if (res.ok) {
           const data = await res.json();
@@ -1085,6 +1091,12 @@ const MainScreen = ({ onLogout }) => {
           setShiftsList(shifts);
         } else {
           console.log('[MainScreen] fetchUserShifts: response not ok:', res.status, res.statusText);
+          try {
+            const errorText = await res.text();
+            console.log('[MainScreen] fetchUserShifts: error response body:', errorText);
+          } catch (e) {
+            console.log('[MainScreen] fetchUserShifts: failed to read error response:', e);
+          }
         }
       } catch (error) {
         console.log('[MainScreen] Error fetching user shifts:', error);
@@ -1106,46 +1118,79 @@ const MainScreen = ({ onLogout }) => {
   return (
     <PaperProvider>
       <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.content}>
-        {/* Тёмная полоса под статус-баром: выходит за safe-area и немного ниже */}
-        <View style={styles.statusBarStripAbsolute} />
-        <View style={styles.statusBarSpacer} />
+        {/* Appbar из React Native Paper вместо черной полоски */}
+        <Appbar.Header style={styles.appbarHeader}>
+          <Appbar.Content title={missingBadges.length > 0 && (
+              <TouchableOpacity onPress={() => setShowHeaderBadges(v => !v)} style={styles.appbarBadge} accessibilityLabel="Проблемы с доступами">
+                <Text style={styles.appbarBadgeText}>!</Text>
+              </TouchableOpacity>
+          )} titleStyle={styles.appbarTitle} />         
+          <View style={styles.appbarRightContent}>
 
-        <View style={[styles.userHeader]}>
-          <View style={styles.userTopRow}>
-            <Avatar.Icon 
-              size={60} 
-              icon="account-circle" 
-              color={colors.primary}
-              style={{ backgroundColor: 'transparent' }}
-              onTouchEnd={() => setMenuModalVisible(true)}
-              accessibilityLabel="Профиль"
-            />
-            <Text style={styles.userRoleTop}>{(currentUser?.user_lname + ' ' + currentUser?.user_fname.charAt(0) + '.' + currentUser?.user_mname.charAt(0) + '.' || 'Пользователь')}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <Chip 
-                mode="flat"
-                style={{ 
+            <Chip 
+              mode="flat"
+              style={[
+                styles.statusChip,
+                { 
                   backgroundColor: userStatus === WorkerStatus.WORKING ? '#4CAF50' : 
                                   (userStatus === WorkerStatus.BLOCKED || userStatus === WorkerStatus.FIRED) ? '#F44336' : '#FF9800'
-                }}
-                textStyle={{ 
-                  color: '#FFFFFF',
-                  fontSize: 13,
-                  fontWeight: '700'
+                }
+              ]}
+              textStyle={styles.statusChipText}
+            >
+              {humanizeStatus(userStatus)}
+            </Chip>
+
+            <Text style={styles.appbarUserName} numberOfLines={1}>
+              {currentUser ? (currentUser?.user_lname + ' ' + currentUser?.user_fname.charAt(0) + '.' + currentUser?.user_mname.charAt(0) + '.' || 'Пользователь') : 'Загрузка...'}
+            </Text>
+            <Appbar.Action 
+              icon="account-circle" 
+              onPress={() => setMenuModalVisible(true)}
+              accessibilityLabel="Профиль"
+            />
+          </View>
+        </Appbar.Header>
+
+        {/* Выпадающее меню профиля */}
+        {menuModalVisible && (
+          <View style={styles.menuOverlay}>
+            <TouchableOpacity 
+              style={styles.menuOverlayTouchable} 
+              activeOpacity={1} 
+              onPress={() => setMenuModalVisible(false)}
+            />
+            <View style={styles.menuContainer}>
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenuModalVisible(false);
+                  guardedAlert('Профиль', 'Функция просмотра профиля будет добавлена позже', [
+                    { text: 'OK', style: 'default' }
+                  ]);
                 }}
               >
-                {humanizeStatus(userStatus)}
-              </Chip>
-              {missingBadges.length > 0 && (
-                <TouchableOpacity onPress={() => setShowHeaderBadges(v => !v)} style={[styles.unreadBadge]} accessibilityLabel="Проблемы с доступами">
-                  <Text style={styles.unreadBadgeText}>!</Text>
-                </TouchableOpacity>
-              )}
+                <Text style={styles.menuItemIcon}>👤</Text>
+                <Text style={styles.menuItemText}>Посмотреть профиль</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenuModalVisible(false);
+                  handleLogout();
+                }}
+              >
+                <Text style={styles.menuItemIcon}>🚪</Text>
+                <Text style={[styles.menuItemText, styles.menuLogoutText]}>Выход</Text>
+              </TouchableOpacity>
             </View>
           </View>
-          {/* Показ badges доступов прямо в хедере (по нажатию на ! слева от ФИО) */}
-          {showHeaderBadges && missingBadges.length > 0 && (
+        )}
+
+      <ScrollView style={styles.content}>
+        {/* Показ badges доступов прямо в хедере (по нажатию на ! слева от ФИО) */}
+        {showHeaderBadges && missingBadges.length > 0 && (
             <View style={[styles.badgeRow, { paddingHorizontal: 16, marginBottom: 10 }]}>
               {missingBadges.map(b => (
                 <View key={b.key} style={styles.badge}>
@@ -1156,7 +1201,6 @@ const MainScreen = ({ onLogout }) => {
               ))}
             </View>
           )}
-        </View>
 
         {/* Статистика перенесена на отдельную вкладку */}
 
@@ -1167,55 +1211,6 @@ const MainScreen = ({ onLogout }) => {
         {/* Показываем только badge для отсутствующих доступов */}
         {/* Badges теперь показываются через глаз в шапке пользователя */}
 
-        {/* Модалка профиля */}
-        <Modal visible={menuModalVisible} transparent animationType="fade" onRequestClose={() => setMenuModalVisible(false)}>
-          <View style={styles.logoutModalOverlay}>
-            <TouchableOpacity style={styles.fill} activeOpacity={1} onPress={() => setMenuModalVisible(false)} />
-            {/* Контейнер с ФИО пользователя */}
-            <Card style={{
-              position: 'absolute',
-              top: 64,
-              left: 16,
-              right: 16,
-              backgroundColor: colors.surface,
-              elevation: 4
-            }}>
-              <Card.Content style={{ padding: 20 }}>
-                <Text style={{
-                  fontSize: 24,
-                  fontWeight: '700',
-                  color: colors.textDark,
-                  marginBottom: 8
-                }}>
-                  {currentUser ? (displayName || '—') : 'Загрузка...'}
-                </Text>
-                <Text style={{
-                  fontSize: 16,
-                  color: colors.textPrimary,
-                  marginBottom: 16
-                }}>
-                  {(currentUser?.worker_type || '').toLowerCase() === 'worker' ? 'Рабочий' : (currentUser?.worker_type || 'Админ')}
-                </Text>
-                
-                {/* Кнопка выхода - внутри контейнера */}
-                <View style={{ alignItems: 'flex-end' }}>
-                  <PaperButton
-                    mode="contained"
-                    onPress={() => { setMenuModalVisible(false); handleLogout(); }}
-                    buttonColor={colors.buttonLogout}
-                    textColor={colors.textLight}
-                    uppercase={false}
-                    style={{ alignSelf: 'flex-end' }}
-                    contentStyle={{ paddingHorizontal: 16, paddingVertical: 6 }}
-                    labelStyle={{ fontSize: 16 }}
-                  >
-                    Выйти
-                  </PaperButton>
-                </View>
-              </Card.Content>
-            </Card>
-          </View>
-        </Modal>
 
         {/* Модалка доступов (по badge/значку) */}
         <Modal visible={accessModalVisible} transparent animationType="fade" onRequestClose={() => setAccessModalVisible(false)}>
@@ -1251,14 +1246,22 @@ const MainScreen = ({ onLogout }) => {
         </Modal>
 
         <View style={[styles.statusCard]}>
-          <View style={[styles.statusIndicator, styles.statusIndicatorFullWidth, isShiftActive ? styles.activeStatus : styles.inactiveStatus]}>
-            <Text style={[
+          <Chip
+            style={[
+              styles.statusIndicator,
+              styles.statusIndicatorFullWidth,
+              isShiftActive ? styles.activeStatus : styles.inactiveStatus
+            ]}
+            textStyle={[
               styles.statusText,
               isShiftActive ? styles.statusTextActive : styles.statusTextInactive
-            ]}>
-              {isShiftActive ? 'Смена активна' : 'Смена не активна'}
-            </Text>
-          </View>
+            ]}
+            icon={isShiftActive ? "check-circle" : "close-circle"}
+            mode="outlined"
+            selected={isShiftActive}
+          >
+            {isShiftActive ? 'Смена активна' : 'Смена не активна'}
+          </Chip>
           <View style={{ marginTop: 12, width: '100%' }}>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Начало смены</Text>

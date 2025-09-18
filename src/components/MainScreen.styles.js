@@ -191,6 +191,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+    marginBottom: spacing.sm,
   },
   detailLabel: {
     flex: 1,
@@ -389,7 +390,6 @@ export const styles = StyleSheet.create({
   // Карточка статуса
   statusCard: {
     ...cardStyles.base,
-    margin: 10,
     padding: spacing.xl,
     alignItems: 'center',
   },
@@ -607,17 +607,121 @@ export const styles = StyleSheet.create({
   },
   
   
-  // Алиасы для совместимости с существующим кодом
-  statusBarStripAbsolute: {
+  // Appbar стили
+  appbarHeader: {
+    backgroundColor: colors.primary,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    width: '100%',
+    paddingHorizontal: 0,
+  },
+  appbarTitle: {
+    color: colors.textLight,
+    fontSize: typography.lg,
+    fontWeight: '600',
+  },
+  appbarRightContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flex: 1,
+    gap: spacing.sm,
+    paddingRight: spacing.md,
+  },
+  statusChip: {
+    height: 32,
+    marginRight: spacing.xs,
+  },
+  statusChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  appbarBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.badgeOrange,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.xs,
+  },
+  appbarBadgeText: {
+    color: colors.textLight,
+    fontWeight: '800',
+    fontSize: 12,
+    marginTop: -1,
+  },
+  appbarUserName: {
+    color: colors.textLight,
+    fontSize: 14,
+    fontWeight: '600',
+    marginRight: spacing.sm,
+    maxWidth: 120,
+  },
+  menuContent: {
+    backgroundColor: colors.surface,
+    borderRadius: spacing.sm,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  menuLogoutText: {
+    color: colors.buttonLogout,
+    fontWeight: '600',
+  },
+  
+  // Выпадающее меню профиля
+  menuOverlay: {
     position: 'absolute',
-    top: -100,
-    left: -1000,
-    right: -1000,
-    height: Platform.OS === 'ios' ? 120 : 120,
-    backgroundColor: '#1f1f1f',
-    zIndex: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
   },
-  statusBarSpacer: {
-    height: Platform.OS === 'ios' ? spacing.lg : spacing.md,
+  menuOverlayTouchable: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
+  menuContainer: {
+    position: 'absolute',
+    top: 60,
+    right: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: spacing.sm,
+    minWidth: 200,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  menuItemIcon: {
+    fontSize: 20,
+    marginRight: spacing.md,
+    width: 24,
+    textAlign: 'center',
+  },
+  menuItemText: {
+    fontSize: typography.md,
+    color: colors.textPrimary,
+    fontWeight: '500',
+  },
+  
+  // Алиасы для совместимости с существующим кодом (удалены, так как заменены на Appbar)
+  // statusBarStripAbsolute и statusBarSpacer больше не нужны
 });

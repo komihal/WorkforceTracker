@@ -13,6 +13,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
+import { Appbar } from 'react-native-paper';
 import authService from '../services/authService';
 import { styles } from './LoginScreen.styles';
 // permissions test removed
@@ -73,14 +74,15 @@ const LoginScreen = ({ onLoginSuccess }) => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Appbar из React Native Paper вместо черной полоски */}
+      <Appbar.Header style={styles.appbarHeader}>
+        <Appbar.Content title="Вход в систему" titleStyle={styles.appbarTitle} />
+      </Appbar.Header>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {/* Тёмная полоса под статус-баром (как на главном экране) */}
-        <View style={styles.statusBarStripAbsolute} />
-        <View style={styles.statusBarSpacer} />
         <View style={styles.headerArea}>
           <View style={styles.logoTransparent}>
             <Image

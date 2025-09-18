@@ -3,7 +3,6 @@ import { colors, spacing, typography, borderRadius, shadows } from '../styles/co
 import { 
   buttonStyles, 
   textStyles, 
-  statusBarStyles, 
   logoStyles 
 } from '../styles/common.styles';
 
@@ -13,7 +12,6 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  ...statusBarStyles,
   flex: {
     flex: 1,
   },
@@ -165,5 +163,20 @@ export const styles = StyleSheet.create({
   testButton: {
     backgroundColor: '#FF9500',
     marginTop: spacing.md,
+  },
+  
+  // Appbar стили
+  appbarHeader: {
+    backgroundColor: colors.primary,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  appbarTitle: {
+    color: colors.textLight,
+    fontSize: typography.lg,
+    fontWeight: '600',
   },
 });
