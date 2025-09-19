@@ -27,6 +27,7 @@ import {
   Appbar,
   Icon
 } from 'react-native-paper';
+import paperTheme from '../styles/paperTheme';
 import { StatusBar } from 'react-native';
 import authService from '../services/authService';
 import Config from 'react-native-config';
@@ -1501,10 +1502,15 @@ const MainScreen = ({ onLogout }) => {
 
 
   return (
-    <PaperProvider>
+    <PaperProvider theme={paperTheme}>
+      <StatusBar 
+        barStyle="light-content" 
+        backgroundColor={colors.primary}
+        translucent={false}
+      />
       <SafeAreaView style={styles.container}>
         {/* Appbar из React Native Paper вместо черной полоски */}
-        <Appbar.Header style={styles.appbarHeader}>
+        <Appbar.Header statusBarHeight={0} style={styles.appbarHeader}>
           {/* <Appbar.Content title={missingBadges.length > 0 && (
               <TouchableOpacity onPress={() => setShowHeaderBadges(v => !v)} style={styles.appbarBadge} accessibilityLabel="Проблемы с доступами">
                 <Text style={styles.appbarBadgeText}>!</Text>
