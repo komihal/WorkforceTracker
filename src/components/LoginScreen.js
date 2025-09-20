@@ -13,9 +13,10 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { Appbar } from 'react-native-paper';
+import { Appbar, Provider as PaperProvider } from 'react-native-paper';
 import authService from '../services/authService';
 import { styles } from './LoginScreen.styles';
+import paperTheme from '../styles/paperTheme';
 // permissions test removed
 
 const LoginScreen = ({ onLoginSuccess }) => {
@@ -73,11 +74,12 @@ const LoginScreen = ({ onLoginSuccess }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Appbar из React Native Paper вместо черной полоски */}
-      <Appbar.Header style={styles.appbarHeader}>
-        <Appbar.Content title="Вход в систему" titleStyle={styles.appbarTitle} />
-      </Appbar.Header>
+    <PaperProvider theme={paperTheme}>
+      <SafeAreaView style={styles.container}>
+        {/* Appbar из React Native Paper вместо черной полоски */}
+        <Appbar.Header statusBarHeight={0} style={styles.appbarHeader}>
+          <Appbar.Content title="Вход в систему" titleStyle={styles.appbarTitle} />
+        </Appbar.Header>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -167,7 +169,8 @@ const LoginScreen = ({ onLoginSuccess }) => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </PaperProvider>
   );
 };
 
