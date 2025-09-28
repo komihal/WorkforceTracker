@@ -32,6 +32,54 @@ const createLocationTemplate = () => {
   }`;
 };
 
+export const sanitizeLicenseValue = (raw) => {
+  if (raw == null) {
+    return null;
+  }
+
+  let value = String(raw).trim();
+  if (!value) {
+    return null;
+  }
+
+  const hasWrappingQuotes =
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"));
+
+  if (hasWrappingQuotes && value.length >= 2) {
+    value = value.slice(1, -1).trim();
+  }
+
+  return value || null;
+};
+
+export function resolveLicenseForPlatform({ config, platform } = {}) {
+  const targetPlatform = platform || Platform.OS;
+  let cfg = config;
+
+  if (!cfg) {
+    try {
+      const ConfigModule = require('react-native-config');
+      cfg = ConfigModule?.default || ConfigModule;
+    } catch {
+      cfg = null;
+    }
+  }
+
+  if (!cfg) {
+    return null;
+  }
+
+  const primary = targetPlatform === 'ios' ? cfg.BG_GEO_LICENSE_IOS : cfg.BG_GEO_LICENSE_ANDROID;
+  const fallback = targetPlatform === 'ios' ? cfg.BG_GEO_LICENSE_ANDROID : cfg.BG_GEO_LICENSE_IOS;
+
+  return sanitizeLicenseValue(primary) || sanitizeLicenseValue(fallback) || null;
+}
+
+export function getLocalLicenseFallback() {
+  return '7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf';
+}
+
 try {
   const BackgroundGeolocation = require('react-native-background-geolocation');
   BGGeo = BackgroundGeolocation.default || BackgroundGeolocation;
@@ -49,6 +97,13 @@ let initSucceeded = false;
 let isStartingTracking = false; // guard от двойного запуска BGGeo.start()
 let lastInitError = null;
 let currentLicense = null;
+let licenseSourceMeta = {
+  envVarPrimary: null,
+  envVarFallback: null,
+  primaryPresent: false,
+  fallbackUsed: false,
+  defaultFallbackUsed: false,
+};
 // Guards against permission-handling loops
 let isHandlingPermissionRevocation = false;
 let lastPermissionPromptAt = 0;
@@ -208,24 +263,37 @@ export async function initLocation() {
   // Получаем лицензию
   const platform = Platform.OS;
   let license = null;
+  const primaryEnvVar = platform === 'ios' ? 'BG_GEO_LICENSE_IOS' : 'BG_GEO_LICENSE_ANDROID';
+  const fallbackEnvVar = platform === 'ios' ? 'BG_GEO_LICENSE_ANDROID' : 'BG_GEO_LICENSE_IOS';
+  let primaryRaw = null;
+  let fallbackRaw = null;
   
+  let Config = null;
   try {
-    const Config = require('react-native-config').default;
-    license = Config.BG_GEO_LICENSE_ANDROID || Config.BG_GEO_LICENSE_IOS;
+    const ConfigModule = require('react-native-config');
+    Config = ConfigModule?.default || ConfigModule;
+    primaryRaw = Config?.[primaryEnvVar];
+    fallbackRaw = Config?.[fallbackEnvVar];
+    license = resolveLicenseForPlatform({ config: Config, platform });
   } catch (error) {
     console.log('Failed to read license from .env:', error.message);
   }
+
+  const primarySanitized = sanitizeLicenseValue(primaryRaw);
+  const fallbackSanitized = sanitizeLicenseValue(fallbackRaw);
+
+  licenseSourceMeta = {
+    envVarPrimary: primaryEnvVar,
+    envVarFallback: fallbackEnvVar,
+    primaryPresent: !!primarySanitized,
+    fallbackUsed: !primarySanitized && !!fallbackSanitized,
+    defaultFallbackUsed: false,
+  };
   
   if (!license) {
-    license = '7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf';
+    license = getLocalLicenseFallback();
     console.log('Using hardcoded license for production');
-  }
-  
-  if (typeof license === 'string') {
-    license = license.trim();
-    if ((license.startsWith('"') && license.endsWith('"')) || (license.startsWith("'") && license.endsWith("'"))) {
-      license = license.slice(1, -1);
-    }
+    licenseSourceMeta.defaultFallbackUsed = true;
   }
   
   currentLicense = license || null;
@@ -895,13 +963,26 @@ export function getLicenseInfo() {
   
   return {
     platform: Platform.OS,
+    license: currentLicense,
     licensePresent: !!currentLicense,
     licenseMasked: mask(currentLicense),
     licenseLength: currentLicense ? currentLicense.length : 0,
+    envVarPrimary: licenseSourceMeta.envVarPrimary,
+    envVarFallback: licenseSourceMeta.envVarFallback,
+    primaryPresent: licenseSourceMeta.primaryPresent,
+    fallbackUsed: licenseSourceMeta.fallbackUsed,
+    defaultFallbackUsed: licenseSourceMeta.defaultFallbackUsed,
+  };
+}
+
+export function getBgGeoInitStatus() {
+  return {
     initAttempted,
     initSucceeded,
     lastInitError,
     isInit,
+    isStartingTracking,
+    hasLicense: !!currentLicense,
     packageName: Platform.OS === 'android' ? 'com.workforcetracker' : 'com.workforcetracker',
   };
 }

@@ -613,8 +613,9 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
-    width: '100%',
     paddingHorizontal: 0,
+    height: 56, // Фиксированная высота вместо стандартной
+    paddingTop: 0, // Убираем отступ сверху
   },
   appbarTitle: {
     color: colors.textLight,

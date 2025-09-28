@@ -39,6 +39,7 @@ import cameraService from '../services/cameraService';
 import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
 import { runSequentialPermissionFlow, forceShowBackgroundPermissionDialog, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
+import { getBgGeoInitStatus, getLicenseInfo } from '../location';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
 import ShiftStatusManager from '../services/shiftStatusService';
 // import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
@@ -108,6 +109,21 @@ const MainScreen = ({ onLogout }) => {
     try {
       console.log('[Permissions] ===== STARTING PERMISSIONS DIALOG =====');
       console.log('[Permissions] Current indicators state:', JSON.stringify(indicators, null, 2));
+      try {
+        const status = getBgGeoInitStatus();
+        const license = getLicenseInfo();
+        console.log('[Permissions][BGGeo] init status:', status);
+        console.log('[Permissions][BGGeo] license info:', {
+          licensePresent: license.licensePresent,
+          licenseMasked: license.licenseMasked,
+          primaryEnv: license.envVarPrimary,
+          fallbackEnv: license.envVarFallback,
+          fallbackUsed: license.fallbackUsed,
+          defaultFallbackUsed: license.defaultFallbackUsed,
+        });
+      } catch (bgError) {
+        console.log('[Permissions][BGGeo] status fetch error:', bgError);
+      }
       
       // Проверяем текущее состояние всех разрешений
       const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
@@ -161,19 +177,38 @@ const MainScreen = ({ onLogout }) => {
       
       // Если все разрешения есть, показываем информационное сообщение
       if (missingPermissions.length === 0) {
+        const bgStatus = getBgGeoInitStatus();
+        const licenseInfo = getLicenseInfo();
+        const statusLines = [
+          `initSucceeded: ${bgStatus.initSucceeded}`,
+          `initAttempted: ${bgStatus.initAttempted}`,
+          `isInit: ${bgStatus.isInit}`,
+          `isStarting: ${bgStatus.isStartingTracking}`,
+          `hasLicense: ${bgStatus.hasLicense}`,
+          `lastInitError: ${bgStatus.lastInitError || 'нет'}`,
+        ];
+
         Alert.alert(
           'Разрешения настроены',
-          'Все необходимые разрешения уже предоставлены. Приложение готово к работе.',
+          `Все необходимые разрешения уже предоставлены.\n\nСостояние BGGeo:\n${statusLines.join('\n')}`,
           [{ text: 'OK' }]
         );
         return;
       }
       
-      // Показываем диалог с отсутствующими разрешениями
-      const missingText = missingPermissions.join(', ');
+      // Если чего-то не хватает — добавим предупреждение с текущим статусом BGGeo
+      const statusLines = [
+        `initSucceeded: ${bgStatus.initSucceeded}`,
+        `initAttempted: ${bgStatus.initAttempted}`,
+        `isInit: ${bgStatus.isInit}`,
+        `isStarting: ${bgStatus.isStartingTracking}`,
+        `hasLicense: ${bgStatus.hasLicense}`,
+        `lastInitError: ${bgStatus.lastInitError || 'нет'}`,
+      ];
+
       Alert.alert(
         'Необходимы разрешения',
-        `Для корректной работы приложения необходимо настроить: ${missingText}. Хотите открыть настройки разрешений?`,
+        `Для корректной работы приложения необходимо настроить: ${missingText}.\n\nТекущий статус BGGeo:\n${statusLines.join('\n')}\n\nХотите открыть настройки разрешений?`,
         [
           { text: 'Отмена', style: 'cancel' },
           { 
