@@ -3,35 +3,41 @@ export const GEO_CONFIG = {
   // Тестовый режим (__DEV__ = true) - более агрессивные настройки для тестирования
   TEST_MODE: {
     // Дистанционный фильтр для BackgroundGeolocation (метры)
-    DISTANCE_FILTER: 10, // 10 метров для точного контроля на стройке
+    DISTANCE_FILTER: 3, // Повышенная точность: шаг 3 метра
     
     // Heartbeat интервал для BackgroundGeolocation (секунды)
-    HEARTBEAT_INTERVAL: 120, // 120 секунд (2 минуты) для регулярной отправки геолокации
+    HEARTBEAT_INTERVAL: 60, // Более частый heartbeat для тёплого старта
     
     // Максимальный возраст позиции (мс)
     MAX_AGE: 5000, // 5 секунд для тестирования
 
-    // Настройки batch для dev режима - более агрессивные для тестирования
-    AUTO_SYNC_THRESHOLD: 5, // Отправляем batch каждые 5 записей в dev режиме
+    // Настройки batch для dev режима - быстрые батчи
+    AUTO_SYNC_THRESHOLD: 5, // Отправляем batch каждые 5 записей
     BATCH_SYNC: true,
     AUTO_SYNC: true,
+
+    // Дополнительные настройки повышенной точности
+    DISABLE_ELASTICITY: true,
   },
   
   // Обычный режим (продакшн) - более консервативные настройки для экономии батареи
   PRODUCTION_MODE: {
     // Дистанционный фильтр для BackgroundGeolocation (метры)
-    DISTANCE_FILTER: 5, // 5 метров для точного контроля на стройке
+    DISTANCE_FILTER: 3, // Повышенная точность: шаг 3 метра
     
     // Heartbeat интервал для BackgroundGeolocation (секунды)
-    HEARTBEAT_INTERVAL: 120, // 120 секунд (2 минуты) для регулярной отправки геолокации
+    HEARTBEAT_INTERVAL: 60, // 60 секунд — компромисс между точностью и батареей
     
     // Максимальный возраст позиции (мс)
     MAX_AGE: 10000, // 10 секунд для экономии батареи
 
     // Настройки batch для production режима - более консервативные
-    AUTO_SYNC_THRESHOLD: 25, // Отправляем batch каждые 25 записей в production
+    AUTO_SYNC_THRESHOLD: 5, // Короткие батчи по 5 точек
     BATCH_SYNC: true,
     AUTO_SYNC: true,
+
+    // Дополнительные настройки повышенной точности
+    DISABLE_ELASTICITY: true,
   }
 };
 

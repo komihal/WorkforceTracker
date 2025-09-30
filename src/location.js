@@ -6,8 +6,8 @@ import { ensureBatteryOptimizationDisabled } from './utils/batteryOptimization';
 import { Platform, AppState } from 'react-native';
 import authService from './services/authService';
 import { getGeoConfig } from './config/geoConfig';
+import { sendLocationToWebhook as sendLocationToWebhookApi, sendToWebhook as sendToWebhookApi } from './config/api';
 
-// Native logger helper
 const logNative = (msg, obj) => {
   try {
     const s = obj ? `${msg} ${JSON.stringify(obj)}` : msg;
@@ -30,6 +30,99 @@ const createLocationTemplate = () => {
     "altmsl": <%= altitude %>,
     "accuracy": <%= accuracy %>
   }`;
+};
+
+// Включение мониторинга событий через .env (по умолчанию включено, можно отключить WEBHOOK_MONITOR=0)
+const webhookEnabled = () => String(Config?.WEBHOOK_MONITOR || '1') === '1';
+
+// Функция для удалённого сбора логов (рекомендация Transistorsoft)
+async function sendRemoteLogs() {
+  if (!webhookEnabled()) return;
+  
+  try {
+    // Получаем логи BGGeo (если доступен метод getLog)
+    let bgLogs = '';
+    if (BGGeo && typeof BGGeo.getLog === 'function') {
+      try {
+        bgLogs = await BGGeo.getLog();
+      } catch (e) {
+        console.log('[REMOTE LOGS] BGGeo.getLog not available:', e.message);
+      }
+    }
+    
+    // Получаем системную информацию
+    const deviceInfo = {
+      platform: Platform.OS,
+      version: Platform.Version,
+      timestamp: new Date().toISOString(),
+      bgGeoState: await BGGeo.getState().catch(() => null),
+      bgGeoEnabled: await BGGeo.getEnabled().catch(() => null),
+      bgGeoCount: await BGGeo.getCount().catch(() => null)
+    };
+    
+    const payload = {
+      type: 'remote_logs',
+      timestamp: new Date().toISOString(),
+      deviceInfo: deviceInfo,
+      bgLogs: bgLogs,
+      appLogs: global.__APP_LOGS__ || []
+    };
+    
+    const response = await fetch('https://api.tabelshik.com/webhook/logs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      timeout: 15000
+    });
+    
+    if (response.ok) {
+      console.log('[REMOTE LOGS] Successfully sent logs to server');
+      // Очищаем локальные логи после успешной отправки
+      global.__APP_LOGS__ = [];
+    } else {
+      console.log('[REMOTE LOGS] Failed to send logs:', response.status);
+    }
+  } catch (error) {
+    console.log('[REMOTE LOGS] Error sending logs:', error.message);
+  }
+}
+
+// Функция для логирования в глобальный массив (для удалённого сбора)
+function logToRemote(message, level = 'info') {
+  if (!global.__APP_LOGS__) {
+    global.__APP_LOGS__ = [];
+  }
+  
+  global.__APP_LOGS__.push({
+    timestamp: new Date().toISOString(),
+    level: level,
+    message: message
+  });
+  
+  // Ограничиваем размер массива логов
+  if (global.__APP_LOGS__.length > 1000) {
+    global.__APP_LOGS__ = global.__APP_LOGS__.slice(-500);
+  }
+}
+
+// Универсальная отправка событий BGGeo в мониторинговый webhook
+const postBgEvent = async (event, payload = {}) => {
+  if (!webhookEnabled()) return;
+  try {
+    await sendToWebhook(
+      {
+        event,
+        payload,
+        userId: currentUserId,
+        placeId: currentPlaceId,
+        phoneImei: currentPhoneImei,
+        ts: Math.floor(Date.now() / 1000),
+      },
+      'bg_event'
+    );
+  } catch {}
 };
 
 export const sanitizeLicenseValue = (raw) => {
@@ -110,10 +203,14 @@ let lastPermissionPromptAt = 0;
 let listenersRegistered = false;
 let batteryCheckDone = false;
 
-// Rate-limit для отправки батчей раз в 2 минуты
-let lastSyncAt = 0;
-let syncInProgress = false;
-const MIN_SYNC_INTERVAL_MS = 120000;
+// Упрощённые переменные (убраны неиспользуемые)
+let lastLocationEventHash = '';
+let lastLocationEventTime = 0;
+const LOCATION_EVENT_DEDUP_MS = 1000; // 1 секунда окно дедупликации
+
+let lastMonitorLocationSentAtSec = 0;
+let lastMonitorLocationHash = '';
+const MONITOR_THROTTLE_SEC = 30; // Увеличиваем до 30 секунд
 
 async function handlePermissionRevocation() {
   try {
@@ -182,37 +279,7 @@ export async function initBgGeo() {
 export async function initLocation() {
   console.log(`[${new Date().toLocaleTimeString()}] ===== INIT LOCATION START =====`);
   
-  // Принудительно сбрасываем конфигурацию для исправления locationTemplate
-  try {
-    console.log('[BG] Force resetting configuration to fix locationTemplate...');
-    if (BGGeo) {
-      await BGGeo.stop();
-      await BGGeo.reset();
-      await BGGeo.destroyLocations();
-      await BGGeo.destroyLog();
-      BGGeo.removeListeners();
-      console.log('[BG] Force reset completed');
-    }
-  } catch (e) {
-    console.log('[BG] Reset error:', e);
-  }
-  
-  if (isInit && initSucceeded) {
-    console.log('initLocation already initialized successfully, but forcing reset for locationTemplate fix');
-    // Принудительно сбрасываем конфигурацию даже если уже инициализирован
-    try {
-      if (BGGeo) {
-        await BGGeo.stop();
-        await BGGeo.reset();
-        await BGGeo.destroyLocations();
-        await BGGeo.destroyLog();
-        BGGeo.removeListeners();
-        console.log('[BG] Force reset completed for locationTemplate fix');
-      }
-    } catch (e) {
-      console.log('[BG] Force reset error:', e);
-    }
-  }
+  // Инициализация выполняется идемпотентно — без жёстких reset()
   
   // Сбрасываем флаг для повторной инициализации
   isInit = true;
@@ -226,19 +293,7 @@ export async function initLocation() {
     return;
   }
   
-  // Принудительно задаём базовые интервалы до полной конфигурации
-  console.log('[BG] Applying base heartbeat config at init start');
-  if (BGGeo) {
-    try {
-      await BGGeo.setConfig({
-        heartbeatInterval: 120,
-        distanceFilter: 10,
-      });
-      console.log('[BG] Base heartbeat config applied at init start');
-    } catch (e) {
-      console.log('[BG] Error in early config setup:', e);
-    }
-  }
+  // Не применяем предварительные setConfig до ready()
 
   // Проверяем разрешения (не фейлим инициализацию при отсутствии "Always")
   try {
@@ -268,10 +323,7 @@ export async function initLocation() {
   let primaryRaw = null;
   let fallbackRaw = null;
   
-  let Config = null;
   try {
-    const ConfigModule = require('react-native-config');
-    Config = ConfigModule?.default || ConfigModule;
     primaryRaw = Config?.[primaryEnvVar];
     fallbackRaw = Config?.[fallbackEnvVar];
     license = resolveLicenseForPlatform({ config: Config, platform });
@@ -348,7 +400,7 @@ export async function initLocation() {
       // База
       reset: true,
       desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
-      distanceFilter: 10, // 10 метров по требованию
+      distanceFilter: geoConfig.DISTANCE_FILTER,
       // Оставляем сервис живым и перезапускаем на boot для стабильной фоновой отправки
       stopOnTerminate: false,
       startOnBoot: true,
@@ -376,30 +428,30 @@ export async function initLocation() {
       },
       
       // Android тюнинг
-      stationaryRadius: 10, // Уменьшаем радиус для более частых обновлений
+      stationaryRadius: geoConfig.DISTANCE_FILTER,
       disableElasticity: false,
       
       // Настройки сбора
       stopOnStationary: false,  // Не останавливаем трекинг при остановке
       stopAfterElapsedMinutes: 0,  // Не останавливаем по времени
-      heartbeatInterval: 120, // 2 минуты = 120 секунд
+      heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
 
-      // Нативный uploader с батчингом
-      autoSync: geoConfig.AUTO_SYNC,
-      batchSync: geoConfig.BATCH_SYNC,
+      // Нативный uploader ВКЛЮЧЕН - используем встроенный механизм Transistorsoft
+      autoSync: true,
+      batchSync: true,
       autoSyncThreshold: geoConfig.AUTO_SYNC_THRESHOLD,
       url: 'https://api.tabelshik.com/api/db_save/',
       httpTimeout: 60000,
       maxRecordsToPersist: 10000,
       headers: { 
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer wqHJerK834'
+        'Authorization': `Bearer ${Config?.API_TOKEN || 'wqHJerK834'}`
       },
       // Формирование тела запроса через locationTemplate + httpRootProperty + params
       method: 'POST',
       httpRootProperty: "geo_array",
       params: {
-        api_token: 'wqHJerK834',
+        api_token: Config?.API_TOKEN || 'wqHJerK834',
         user_id: currentUserId || 0,
         place_id: currentPlaceId || 0,
         phone_imei: currentPhoneImei || 'unknown'
@@ -418,43 +470,7 @@ export async function initLocation() {
       batchSync: CANONICAL_CONFIG.batchSync
     });
     
-    // 1) ПРИНУДИТЕЛЬНЫЙ сброс persisted-состояния для исправления locationTemplate
-    try {
-      console.log('[BG][reset] Forcing canonical reset to fix locationTemplate...');
-      
-      // Сначала останавливаем BGGeo
-      await BGGeo.stop();
-      console.log('[BG][reset] BGGeo stopped');
-      
-      // Устанавливаем пустую строку для locationTemplate согласно документации
-      const CONFIG_WITH_EMPTY_TEMPLATE = { ...CANONICAL_CONFIG };
-      CONFIG_WITH_EMPTY_TEMPLATE.locationTemplate = "";
-      console.log('[BG][reset] Config with empty locationTemplate:', Object.keys(CONFIG_WITH_EMPTY_TEMPLATE));
-      
-      await BGGeo.reset(CONFIG_WITH_EMPTY_TEMPLATE); // ← ключевой шаг
-      await BGGeo.destroyLocations();       // очистим БД локаций (на всякий случай)
-      await BGGeo.destroyLog();             // очистим логи плагина
-      BGGeo.removeListeners();              // снимем старые подписки, если были
-      
-      // Согласно документации Transistorsoft: используем только официальные методы
-      console.log('[BG][reset] Using only official Transistorsoft methods');
-      
-      console.log('[BG][reset] Hard reset completed successfully');
-    } catch (e) {
-      console.log('[BG][reset] error', e);
-    }
-    
-    // 2) Нормальная готовность (оставляем reset:true — по умолчанию оно true в SDK).
-    console.log('[BG][ready] Final CANONICAL_CONFIG heartbeatInterval:', CANONICAL_CONFIG.heartbeatInterval);
-    
-    // Принудительно очищаем накопленные данные для избежания массовой отправки
-    try {
-      await BGGeo.destroyLocations();
-      console.log('[BG][ready] Cleared accumulated location data');
-    } catch (e) {
-      console.log('[BG][ready] Error clearing locations:', e);
-    }
-    
+    // Нормальная готовность.
     console.log('[BG] Calling BGGeo.ready() with timeout...');
     const readyPromise = BGGeo.ready(CANONICAL_CONFIG);
     const timeoutPromise = new Promise((_, reject) => 
@@ -464,18 +480,38 @@ export async function initLocation() {
     const state = await Promise.race([readyPromise, timeoutPromise]);
     console.log('[BG][ready] enabled:', state.enabled, 'isMoving:', state.isMoving);
     console.log('[BG] BGGeo.ready() completed successfully');
+    
+    // Проверяем текущую конфигурацию
+    const currentConfig = await BGGeo.getState();
+    console.log('[BG] Current config URL:', currentConfig.url);
+    console.log('[BG] Current config autoSync:', currentConfig.autoSync);
+    console.log('[BG] Current config batchSync:', currentConfig.batchSync);
+    console.log('[BG] Current config autoSyncThreshold:', currentConfig.autoSyncThreshold);
+    
+    // Логируем конфигурацию для удалённого мониторинга
+    logToRemote(`BGGeo configured: autoSync=${currentConfig.autoSync}, batchSync=${currentConfig.batchSync}, threshold=${currentConfig.autoSyncThreshold}`, 'info');
+    
+    // Настраиваем периодическую отправку логов (каждые 5 минут)
+    setInterval(() => {
+      sendRemoteLogs().catch(() => {});
+    }, 5 * 60 * 1000);
+
+    // Если не включено — запускаем
+    if (!state.enabled) {
+      try {
+        await BGGeo.start();
+      } catch (e) {
+        console.log('[BG] start() after ready error:', String(e?.message || e));
+      }
+    }
+
+    // Применяем URL по текущему режиму (api/webhook)
+    try { await updateEndpointUrl(); } catch (e) { console.log('updateEndpointUrl error:', e?.message || e); }
 
     // УБИРАЕМ ДУБЛИРОВАНИЕ - heartbeat обработчик будет зарегистрирован далее в этом блоке
     console.log('[BG] Registering event listeners...');
 
-    // Дополнительно актуализируем интервалы после ready (HTTP-настройки уже применены)
-    console.log('[BG] Applying post-ready timing config');
-    await BGGeo.setConfig({
-      heartbeatInterval: 120,
-      distanceFilter: 10,
-      maxRecordsToPersist: 10000
-    });
-    console.log('[BG] Post-ready timing config applied');
+    // После ready не накладываем дополнительные setConfig — конфиг единый
 
     // Проверка оптимизации батареи (интерактивный запрос при необходимости)
     // Используем setTimeout для избежания блокировки инициализации
@@ -503,37 +539,166 @@ export async function initLocation() {
     if (!listenersRegistered) {
       listenersRegistered = true;
     BGGeo.onLocation(loc => {
+      // Дедупликация событий onLocation
+      const eventHash = `${loc.coords.latitude.toFixed(6)}_${loc.coords.longitude.toFixed(6)}_${loc.timestamp}`;
+      const now = Date.now();
+      if (eventHash === lastLocationEventHash && 
+          now - lastLocationEventTime < LOCATION_EVENT_DEDUP_MS) {
+        console.log('[BG][location] Skip duplicate event (dedup):', eventHash.substring(0, 30));
+        return;
+      }
+      
+      lastLocationEventHash = eventHash;
+      lastLocationEventTime = now;
+      
       console.log('[BG][location]', loc.coords.latitude, loc.coords.longitude);
       console.log('[BG][location] timestamp:', loc.timestamp, 'formatted:', new Date(loc.timestamp).toISOString(), 'unix:', Math.floor((typeof loc.timestamp === 'number' ? loc.timestamp : new Date(loc.timestamp).getTime()) / 1000));
       console.log('🔵  Acquired motionchange position, isMoving:', loc.isMoving);
       
-      // Отправка данных при каждом обновлении локации (не только при движении)
-      console.log('[BG][location] Debug - currentUserId:', currentUserId, 'isMoving:', loc.isMoving);
-      if (currentUserId) {
-        console.log('[BG][location] Using native autoSync uploader; no manual fetch');
+      // Мониторинг накопления записей в очереди
+      BGGeo.getCount().then(count => {
+        console.log(`[BG][queue] Records in queue: ${count}`);
+        
+        // Отправляем статус очереди в webhook каждые 5 записей
+        if (count % 5 === 0) {
+          postBgEvent('queue_status', {
+            count: count,
+            threshold: geoConfig.AUTO_SYNC_THRESHOLD,
+            readyForBatch: count >= geoConfig.AUTO_SYNC_THRESHOLD,
+            timestamp: new Date().toISOString()
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+      
+      // Отправка в мониторинговый webhook (в дополнение к нативному uploader'у)
+      if (webhookEnabled()) {
+        const tsSec = Math.floor((typeof loc.timestamp === 'number' ? loc.timestamp : new Date(loc.timestamp).getTime()) / 1000);
+        const nowSec = Math.floor(Date.now() / 1000);
+        
+        // Не отправляем старые точки (старше 2 минут) в мониторинг
+        if (nowSec - tsSec > 120) {
+          console.log('[BG][location] Skip monitoring webhook: location too old', nowSec - tsSec, 'seconds');
+          return;
+        }
+        
+        // Throttle: не чаще 1 раза в 30 секунд и по изменению координат
+        const key = `${loc.coords.latitude.toFixed(6)},${loc.coords.longitude.toFixed(6)}:${tsSec}`;
+        if (nowSec - lastMonitorLocationSentAtSec >= MONITOR_THROTTLE_SEC || key !== lastMonitorLocationHash) {
+          lastMonitorLocationSentAtSec = nowSec;
+          lastMonitorLocationHash = key;
+          sendLocationToWebhookApi({
+          lat: loc.coords.latitude,
+          lon: loc.coords.longitude,
+          accuracy: loc.coords.accuracy,
+          speed: loc.coords.speed,
+          heading: loc.coords.heading,
+          ts: tsSec,              // секунды
+          batt: loc.battery?.level,
+          motion: loc.activity?.type,
+          alt: loc.coords.altitude,
+          altmsl: loc.coords.altitude,
+          userId: currentUserId,
+          placeId: currentPlaceId,
+          phoneImei: currentPhoneImei
+          }).catch(() => {});
+        } else {
+          console.log('[WEBHOOK][throttle] skip duplicate/too-soon location');
+        }
       }
+      
+      // Отправка данных через встроенный autoSync (best practice Transistorsoft)
+      console.log('[BG][location] Debug - currentUserId:', currentUserId, 'isMoving:', loc.isMoving);
+      console.log('[BG][location] Using native autoSync uploader (Transistorsoft best practice)');
     });
     
     BGGeo.onMotionChange(e => {
       console.log('[BG][motionchange]', e.isMoving);
       console.log('🔵  setPace:', e.isMoving);
+      postBgEvent('motionchange', { isMoving: e.isMoving });
     });
     
+    // Мониторинг batch-отправок через onSync (если доступен)
+    if (BGGeo.onSync) {
+      BGGeo.onSync((batch) => {
+        console.log('='.repeat(80));
+        console.log('📦 BGEO BATCH SYNC EVENT');
+        console.log('='.repeat(80));
+        console.log('📊 Batch size:', batch.length);
+        console.log('📋 Batch data:', JSON.stringify(batch, null, 2));
+        
+        // Отправляем информацию о batch в мониторинговый webhook
+        postBgEvent('batch_sync', {
+          batchSize: batch.length,
+          timestamp: new Date().toISOString(),
+          firstLocation: batch[0] ? {
+            lat: batch[0].coords?.latitude,
+            lon: batch[0].coords?.longitude,
+            timestamp: batch[0].timestamp
+          } : null,
+          lastLocation: batch[batch.length - 1] ? {
+            lat: batch[batch.length - 1].coords?.latitude,
+            lon: batch[batch.length - 1].coords?.longitude,
+            timestamp: batch[batch.length - 1].timestamp
+          } : null
+        }).catch(() => {});
+      });
+    }
+
     BGGeo.onHttp(async (r) => {
-      // Детальное логирование для Cursor output
+      // Детальный мониторинг встроенного uploader'а Transistorsoft
       console.log('='.repeat(80));
-      console.log('🌐 HTTP REQUEST TO SERVER');
+      console.log('🌐 NATIVE BGEO HTTP EVENT');
       console.log('='.repeat(80));
       console.log('📡 URL:', r.url);
       console.log('📊 Status:', r.status);
       console.log('📋 Headers:', JSON.stringify(r.requestHeaders, null, 2));
-      console.log('📦 Request Body:');
+      console.log('📋 Request Body Length:', r.requestBody?.length || 0);
+      console.log('📋 Full Response Object Keys:', Object.keys(r));
+      console.log('📋 Response Text:', r.responseText);
+      console.log('📋 Success:', r.success);
+      
+      // Анализ batch данных
+      let batchData = null;
+      let recordCount = 0;
+      let isBatchRequest = false;
+      
       try {
-        const requestData = JSON.parse(r.requestBody);
-        console.log(JSON.stringify(requestData, null, 2));
+        if (r.requestBody) {
+          batchData = JSON.parse(r.requestBody);
+          if (batchData.geo_array && Array.isArray(batchData.geo_array)) {
+            recordCount = batchData.geo_array.length;
+            isBatchRequest = true;
+            console.log('📦 BATCH DATA DETECTED:');
+            console.log('   Records count:', recordCount);
+            console.log('   First record:', JSON.stringify(batchData.geo_array[0], null, 2));
+            if (recordCount > 1) {
+              console.log('   Last record:', JSON.stringify(batchData.geo_array[recordCount - 1], null, 2));
+            }
+          } else {
+            console.log('📦 SINGLE RECORD DATA:');
+            console.log('   Data:', JSON.stringify(batchData, null, 2));
+          }
+        } else {
+          console.log('📦 NO REQUEST BODY - checking response for batch info');
+          // Анализируем responseText для определения batch
+          if (r.responseText) {
+            try {
+              const responseData = JSON.parse(r.responseText);
+              if (responseData.geo_data_saved && responseData.geo_data_saved > 1) {
+                isBatchRequest = true;
+                recordCount = responseData.geo_data_saved;
+                console.log('📦 BATCH DETECTED FROM RESPONSE:');
+                console.log('   Records saved:', recordCount);
+              }
+            } catch (e) {
+              console.log('📦 Response Text (raw):', r.responseText);
+            }
+          }
+        }
       } catch (e) {
-        console.log(r.requestBody);
+        console.log('📦 Request Body (raw):', r.requestBody?.substring(0, 500) + '...');
       }
+      
       console.log('📥 Response:');
       try {
         const responseData = JSON.parse(r.responseText);
@@ -544,24 +709,42 @@ export async function initLocation() {
       console.log('='.repeat(80));
       
       // Краткий статус
-      if (r.status === 200) {
-        console.log('✅ HTTP SUCCESS:', r.status);
+      if (r.status === 200 || r.status === 201) {
+        console.log('✅ NATIVE UPLOADER SUCCESS:', r.status, `(${recordCount} records, batch: ${isBatchRequest})`);
         try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
-        // Убираем автоматический refresh - теперь статус обновляется по требованию
-        console.log('[BG][onHttp] Geo data uploaded successfully');
+        console.log('[BG][onHttp] Native uploader sent successfully');
+        
+        // Логируем успешную отправку для удалённого мониторинга
+        logToRemote(`Native uploader success: ${recordCount} records, batch: ${isBatchRequest}, status: ${r.status}`, 'info');
       } else {
-        console.log('❌ HTTP ERROR:', r.status, r.responseText);
+        console.log('❌ NATIVE UPLOADER ERROR:', r.status, r.responseText);
+        logToRemote(`Native uploader error: status ${r.status}, response: ${r.responseText}`, 'error');
       }
-      console.log('='.repeat(80));
+      
+      // Отправка детального статуса в мониторинговый webhook
+      postBgEvent('native_uploader', { 
+        url: r.url, 
+        status: r.status, 
+        recordCount: recordCount,
+        batchSize: recordCount,
+        isBatchRequest: isBatchRequest,
+        timestamp: new Date().toISOString(),
+        success: r.status === 200 || r.status === 201,
+        responseText: r.responseText?.substring(0, 200) || ''
+      }).catch(() => {});
     });
     
-    // onSync не существует в API Transistorsoft, удаляем
+    
+    // Экспортируем функции для удалённого мониторинга
+    global.sendRemoteLogs = sendRemoteLogs;
+    global.logToRemote = logToRemote;
     
     // onError не существует в API Transistorsoft, используем onHttp для обработки ошибок
     
     BGGeo.onProviderChange(async (p) => {
       console.log('[BG][provider]', p.status, p.gps);
       console.log('🔵  Provider change:', p.status);
+      postBgEvent('providerchange', p);
       
       // Обработка отзыва разрешений
       if (p.status === 'DENIED' || p.status === 'RESTRICTED') {
@@ -573,16 +756,19 @@ export async function initLocation() {
     BGGeo.onActivityChange(e => {
       console.log('[BG][activity]', e.activity, e.confidence);
       console.log('🚘  DetectedActivity [type=' + e.activity + ', confidence=' + e.confidence + ']');
+      postBgEvent('activitychange', e);
     });
     
     BGGeo.onEnabledChange(enabled => {
       console.log('[BG][enabledChange]', enabled);
       console.log('✅  Started in foreground');
+      postBgEvent('enabledchange', { enabled });
     });
     
     BGGeo.onConnectivityChange(async (ev) => {
       console.log('[BG][connectivity]', ev.connected);
       console.log('🔵  Connectivity change:', ev.connected);
+      postBgEvent('connectivity', ev);
       // При восстановлении сети инициируем немедленный sync накопленных точек
       if (ev.connected) {
         try {
@@ -598,6 +784,7 @@ export async function initLocation() {
     BGGeo.onAuthorization(async (auth) => {
       console.log('[BG][authorization]', auth.status);
       console.log('🔐  Authorization change:', auth.status);
+      postBgEvent('authorization', auth);
       
       // Если авторизация отозвана
       if (auth.status === 'DENIED' || auth.status === 'RESTRICTED') {
@@ -606,17 +793,18 @@ export async function initLocation() {
       }
     });
 
-    // Heartbeat: только сохраняем свежую точку (persist) — отправку делает нативный uploader
+    // Heartbeat: только прогреваем координату (no persist) — отправку делает нативный uploader
     BGGeo.onHeartbeat(async () => {
       try {
         const loc = await BGGeo.getCurrentPosition({
           samples: 1,
           timeout: 20,
           desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
-          persist: true,
+          persist: false,
           maximumAge: 0
         });
-        console.log('[BG][heartbeat] persisted location:', loc?.coords?.latitude, loc?.coords?.longitude);
+        console.log('[BG][heartbeat] warm location (no persist):', loc?.coords?.latitude, loc?.coords?.longitude);
+        postBgEvent('heartbeat', { lat: loc?.coords?.latitude, lon: loc?.coords?.longitude });
         // Сразу после persist пытаемся синхронизировать накопленные точки
         try {
           await BGGeo.sync();
@@ -626,6 +814,7 @@ export async function initLocation() {
         }
       } catch (e) {
         console.log('[BG][heartbeat] getCurrentPosition error:', String(e?.message || e));
+        postBgEvent('heartbeat_error', { message: String(e?.message || e) });
       }
     });
 
@@ -679,93 +868,25 @@ export async function startTracking(userId) {
 
   // Сохраняем currentUserId для transform
   currentUserId = userId;
-
-  // ПРИНУДИТЕЛЬНО применяем каноническую конфигурацию согласно документации
-  console.log('[BG] Force applying canonical config via setConfig()...');
   
-  // Принудительно сбрасываем конфигурацию для исправления locationTemplate
-  try {
-    console.log('[BG] Force reset before startTracking to fix locationTemplate...');
-    await BGGeo.stop();
-    await BGGeo.reset();
-    await BGGeo.destroyLocations();
-    await BGGeo.destroyLog();
-    BGGeo.removeListeners();
-    
-    // Согласно документации Transistorsoft: используем только официальные методы
-    console.log('[BG] Using only official Transistorsoft methods in startTracking');
-    
-    console.log('[BG] Reset completed before startTracking');
-  } catch (e) {
-    console.log('[BG] Reset error before startTracking:', e);
-  }
-  
-  // Конфигурация с привязкой к пользователю
-  // stopTimeout убран - используется значение по умолчанию (5 секунд)
-  const CANONICAL_CONFIG_WITH_USER = {
-    // База
-    reset: true,
-    desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
-    distanceFilter: 10, // 10 метров по требованию
-    stopOnTerminate: false,  // ← Сервис не останавливается при закрытии приложения
-    startOnBoot: true,       // ← Автоматически запускается при загрузке устройства
-    enableHeadless: true,    // ← Работает в headless режиме
-    foregroundService: true, // ← Показывает уведомление о работе в фоне
-  
-    
-    // Уведомление foreground-сервиса (Android O+)
-    notification: {
-      title: "📍 Смена активна",
-      text: "Отслеживание местоположения",
-      channelName: "Location Tracking",
-      smallIcon: "ic_stat_notify",
-      priority: BGGeo.NOTIFICATION_PRIORITY_LOW,
-      sticky: true,
-      sound: null,  // Отключаем звук уведомления
-      vibrate: false,  // Отключаем вибрацию
-      color: "#007AFF"  // Цвет уведомления
-    },
-    
-    // Android тюнинг
-    stationaryRadius: 10, // Уменьшаем радиус для более частых обновлений
-    disableElasticity: false,
-    heartbeatInterval: 120, // 2 минуты для периодической отправки
-    
-    // Настройки для отправки каждые 2 минуты при отсутствии активности
-    stopOnStationary: false,  // Не останавливаем трекинг при остановке
-    stopAfterElapsedMinutes: 0,  // Не останавливаем по времени
-
-    // Нативный uploader
-    autoSync: true,
-    batchSync: true,
-    autoSyncThreshold: 25,
+  // Обновляем только user-зависимые параметры и секьюрные значения из ENV
+  const geoConfig = getGeoConfig();
+  await BGGeo.setConfig({
+    distanceFilter: geoConfig.DISTANCE_FILTER,
+    heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
     url: 'https://api.tabelshik.com/api/db_save/',
-    httpTimeout: 60000,
-    maxRecordsToPersist: 10000,
-    method: 'POST',
-    httpRootProperty: "geo_array",
-    
-    // Шаблон одной точки + корневые поля в params
-    locationTemplate: createLocationTemplate(),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${Config?.API_TOKEN || 'wqHJerK834'}`
+    },
     params: {
-      api_token: 'wqHJerK834',
+      api_token: Config?.API_TOKEN || 'wqHJerK834',
       user_id: userId || 0,
       place_id: currentPlaceId || 1,
       phone_imei: currentPhoneImei || 'unknown'
-    },
-    
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer wqHJerK834'
-    },
-    
-    debug: __DEV__, // Включаем debug только в dev режиме
-    logLevel: __DEV__ ? BGGeo.LOG_LEVEL_VERBOSE : BGGeo.LOG_LEVEL_ERROR, // Минимальное логирование в релизе
-    license: getLicenseInfo().license,
-  };
-  
-  await BGGeo.setConfig(CANONICAL_CONFIG_WITH_USER);
-  console.log('[BG] Canonical config applied successfully via setConfig()');
+    }
+  });
+  console.log('[BG] Updated config with user params');
 
   // Guard: избегаем параллельных start()
   if (isStartingTracking) {
@@ -787,13 +908,7 @@ export async function startTracking(userId) {
   
   // Heartbeat handler уже зарегистрирован в initLocation(); дублирование не требуется
 
-  // Принудительно применяем конфигурацию с heartbeatInterval: 120
-  console.log('[BG] Force applying 2-minute heartbeat config in startTracking()');
-  await BGGeo.setConfig({
-    heartbeatInterval: 120,
-    distanceFilter: 10
-  });
-  console.log('[BG] 2-minute heartbeat config applied in startTracking()');
+  // Дополнительные setConfig не требуются — стартуем при необходимости
   
   try {
     await BGGeo.start();
@@ -826,10 +941,10 @@ export async function startTracking(userId) {
         samples: 1,
         timeout: 20,
         desiredAccuracy: BGGeo.DESIRED_ACCURACY_HIGH,
-        persist: true,
+        persist: false,
         maximumAge: 0,
       });
-      console.log('[BG] getCurrentPosition persisted:', loc?.coords?.latitude, loc?.coords?.longitude);
+      console.log('[BG] getCurrentPosition warmed up (no persist):', loc?.coords?.latitude, loc?.coords?.longitude);
     } catch (e) {
       console.log('[BG] getCurrentPosition error:', String(e?.message || e));
     }
@@ -900,8 +1015,8 @@ export async function updateEndpointUrl() {
     
     // Выбираем URL в зависимости от режима
     const endpointUrl = isWebhookMode 
-      ? 'https://api.tabelshik.com/webhook/' 
-      : 'https://api.tabelshik.com/api/db_save/';
+      ? `${Config?.API_URL}/webhook/`
+      : (Config?.BG_WEBHOOK_URL || `${Config?.API_URL}/api/db_save/`);
     
     console.log(`Updating BGGeo endpoint URL to: ${endpointUrl} (mode: ${currentEndpointMode})`);
     
