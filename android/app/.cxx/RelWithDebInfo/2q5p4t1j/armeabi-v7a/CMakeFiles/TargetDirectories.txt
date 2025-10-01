@@ -10,3 +10,9 @@
 /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/RNPermissionsSpec_autolinked_build/CMakeFiles/react_codegen_RNPermissionsSpec.dir
 /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/RNPermissionsSpec_autolinked_build/CMakeFiles/edit_cache.dir
 /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/RNPermissionsSpec_autolinked_build/CMakeFiles/rebuild_cache.dir
+/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/safeareacontext_autolinked_build/CMakeFiles/react_codegen_safeareacontext.dir
+/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/safeareacontext_autolinked_build/CMakeFiles/edit_cache.dir
+/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/safeareacontext_autolinked_build/CMakeFiles/rebuild_cache.dir
+/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/RNVectorIconsSpec_autolinked_build/CMakeFiles/react_codegen_RNVectorIconsSpec.dir
+/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/RNVectorIconsSpec_autolinked_build/CMakeFiles/edit_cache.dir
+/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/armeabi-v7a/RNVectorIconsSpec_autolinked_build/CMakeFiles/rebuild_cache.dir

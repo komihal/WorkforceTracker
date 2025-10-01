@@ -51,23 +51,24 @@ export const sendToWebhook = async (data, type = 'general') => {
     return { success: false, error: 'Webhook disabled' };
   }
 
+  const targetUrl = WEBHOOK_CONFIG.MONITORING_URL; // Всегда один endpoint
+
   try {
-    const url = WEBHOOK_CONFIG.MONITORING_URL;
     const payload = {
       type,
       timestamp: new Date().toISOString(),
       data,
     };
 
-    console.log(`[WEBHOOK] Sending ${type} to ${url}:`, payload);
+    console.log(`[WEBHOOK] Sending ${type} to ${targetUrl}:`, payload);
 
-    const response = await fetch(url, {
+    const response = await fetch(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-      timeout: WEBHOOK_CONFIG.TIMEOUT,
+      timeout: WEBHOOK_CONFIG.TIMEROUT || WEBHOOK_CONFIG.TIMEOUT,
     });
 
     if (response.ok) {

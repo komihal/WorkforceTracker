@@ -47,6 +47,8 @@ if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   include("/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/arm64-v8a/rnasyncstorage_autolinked_build/cmake_install.cmake")
   include("/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/arm64-v8a/RNImagePickerSpec_autolinked_build/cmake_install.cmake")
   include("/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/arm64-v8a/RNPermissionsSpec_autolinked_build/cmake_install.cmake")
+  include("/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/arm64-v8a/safeareacontext_autolinked_build/cmake_install.cmake")
+  include("/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/RelWithDebInfo/2q5p4t1j/arm64-v8a/RNVectorIconsSpec_autolinked_build/cmake_install.cmake")
 
 endif()
 

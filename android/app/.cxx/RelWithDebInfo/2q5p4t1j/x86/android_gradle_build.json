@@ -3,6 +3,8 @@
     "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt",
     "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-image-picker/android/build/generated/source/codegen/jni/CMakeLists.txt",
     "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-permissions/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt",
+    "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/CMakeLists.txt",
     "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/CMakeLists.txt"
   ],
   "cleanCommandsComponents": [
@@ -26,6 +28,7 @@
       "artifactName": "appmodules",
       "output": "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/build/intermediates/cxx/RelWithDebInfo/2q5p4t1j/obj/x86/libappmodules.so",
       "runtimeFiles": [
+        "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/build/intermediates/cxx/RelWithDebInfo/2q5p4t1j/obj/x86/libreact_codegen_safeareacontext.so",
         "/Users/user/.gradle/caches/8.13/transforms/0e16faff67c39d5b4e83a0a3d02d4da9/transformed/fbjni-0.7.0/prefab/modules/fbjni/libs/android.x86/libfbjni.so",
         "/Users/user/.gradle/caches/8.13/transforms/0be8138abc5be881816bc44e3628113b/transformed/react-android-0.80.2-release/prefab/modules/jsi/libs/android.x86/libjsi.so",
         "/Users/user/.gradle/caches/8.13/transforms/0be8138abc5be881816bc44e3628113b/transformed/react-android-0.80.2-release/prefab/modules/reactnative/libs/android.x86/libreactnative.so"
@@ -41,10 +44,26 @@
       "abi": "x86",
       "artifactName": "react_codegen_RNPermissionsSpec"
     },
+    "react_codegen_RNVectorIconsSpec::@479809fae146501fd34d": {
+      "toolchain": "toolchain",
+      "abi": "x86",
+      "artifactName": "react_codegen_RNVectorIconsSpec"
+    },
     "react_codegen_rnasyncstorage::@1596841e19ec5b9eeffe": {
       "toolchain": "toolchain",
       "abi": "x86",
       "artifactName": "react_codegen_rnasyncstorage"
+    },
+    "react_codegen_safeareacontext::@7984cd80db47aa7b952a": {
+      "toolchain": "toolchain",
+      "abi": "x86",
+      "artifactName": "react_codegen_safeareacontext",
+      "output": "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/build/intermediates/cxx/RelWithDebInfo/2q5p4t1j/obj/x86/libreact_codegen_safeareacontext.so",
+      "runtimeFiles": [
+        "/Users/user/.gradle/caches/8.13/transforms/0e16faff67c39d5b4e83a0a3d02d4da9/transformed/fbjni-0.7.0/prefab/modules/fbjni/libs/android.x86/libfbjni.so",
+        "/Users/user/.gradle/caches/8.13/transforms/0be8138abc5be881816bc44e3628113b/transformed/react-android-0.80.2-release/prefab/modules/jsi/libs/android.x86/libjsi.so",
+        "/Users/user/.gradle/caches/8.13/transforms/0be8138abc5be881816bc44e3628113b/transformed/react-android-0.80.2-release/prefab/modules/reactnative/libs/android.x86/libreactnative.so"
+      ]
     }
   },
   "toolchains": {

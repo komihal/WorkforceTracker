@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SafeAreaView, Text, BackHandler, AppState } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Text, BackHandler, AppState } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import LoginScreen from './src/components/LoginScreen';
 import MainScreen from './src/components/MainScreen';
 import StatsScreen from './src/components/StatsScreen';
@@ -32,14 +32,17 @@ export default function App() {
     (async () => {
       console.log('[APP] async function started');
       try {
-        console.log('[APP] Starting initBgGeo...');
-        await initBgGeo();
-        console.log('[APP] initBgGeo completed successfully');
-        
-        // Удаляем принудительную регистрацию heartbeat и ручные отправки — используем uploader BGGeo
-        
-        // короткая задержка, чтобы успели подняться контексты
-        setTimeout(() => ensureBgStarted("app_boot"), 1500);
+        // Инициализируем BGGeo только если пользователь уже авторизован
+        const existingUser = await authService.getCurrentUser();
+        if (existingUser && existingUser.user_id) {
+          console.log('[APP] Starting initBgGeo (user is logged in)...');
+          await initBgGeo();
+          console.log('[APP] initBgGeo completed successfully');
+          // короткая задержка, чтобы успели подняться контексты
+          setTimeout(() => ensureBgStarted('app_boot'), 1500);
+        } else {
+          console.log('[APP] Skip initBgGeo: no logged-in user');
+        }
 
         // Удалён JavaScript setInterval для отправки — полагаемся на native uploader
       } catch (error) {
@@ -49,10 +52,18 @@ export default function App() {
 
     const sub = AppState.addEventListener('change', async (next) => {
       if (appState.current.match(/inactive|background/) && next === 'active') {
-        const lic = getLicenseInfo();
-        if (!lic.initSucceeded) {
-          await initBgGeo();
-        }
+        try {
+          // Ре-инициализируем только при наличии авторизованного пользователя
+          const user = await authService.getCurrentUser();
+          if (user && user.user_id) {
+            const lic = getLicenseInfo();
+            if (!lic.initSucceeded) {
+              await initBgGeo();
+            }
+          } else {
+            console.log('[APP] App became active: skip BGGeo init (no logged-in user)');
+          }
+        } catch {}
       }
       appState.current = next;
     });
@@ -227,7 +238,7 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <SafeAreaView edges={['left','right','bottom']} style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <Text style={{ fontSize: 18 }}>Загрузка...</Text>
       </SafeAreaView>
     );
@@ -253,7 +264,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView edges={['left','right','bottom']} style={{ flex: 1 }}>
         {renderScreen()}
       </SafeAreaView>
     </SafeAreaProvider>

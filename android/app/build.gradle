@@ -110,8 +110,8 @@ android {
         applicationId "com.workforcetracker"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
         // Keep only required locales to shrink resources
         resConfigs 'en', 'ru'
         // Pass Transistorsoft license into AndroidManifest via placeholder (from .env)

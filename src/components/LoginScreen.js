@@ -7,12 +7,12 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
-  SafeAreaView,
   Platform,
   KeyboardAvoidingView,
   ScrollView,
   Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Appbar, Provider as PaperProvider } from 'react-native-paper';
 import authService from '../services/authService';
 import { styles } from './LoginScreen.styles';
@@ -75,9 +75,9 @@ const LoginScreen = ({ onLoginSuccess }) => {
 
   return (
     <PaperProvider theme={paperTheme}>
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['left','right','bottom']} style={styles.container}>
         {/* Appbar из React Native Paper вместо черной полоски */}
-        <Appbar.Header statusBarHeight={0} style={styles.appbarHeader}>
+        <Appbar.Header style={styles.appbarHeader}>
           <Appbar.Content title="Вход в систему" titleStyle={styles.appbarTitle} />
         </Appbar.Header>
       <KeyboardAvoidingView

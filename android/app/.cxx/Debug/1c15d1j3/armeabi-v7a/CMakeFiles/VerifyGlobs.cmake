@@ -87,6 +87,76 @@ if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
   file(TOUCH_NOCREATE "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/1c15d1j3/armeabi-v7a/CMakeFiles/cmake.verify_globs")
 endif()
 
+# LIB_CUSTOM_SRCS at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt:12 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/*.cpp")
+set(OLD_GLOB
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/1c15d1j3/armeabi-v7a/CMakeFiles/cmake.verify_globs")
+endif()
+
+# LIB_CUSTOM_SRCS at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt:12 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../../common/cpp/react/renderer/components/safeareacontext/*.cpp")
+set(OLD_GLOB
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../../common/cpp/react/renderer/components/safeareacontext/RNCSafeAreaViewShadowNode.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../../common/cpp/react/renderer/components/safeareacontext/RNCSafeAreaViewState.cpp"
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/1c15d1j3/armeabi-v7a/CMakeFiles/cmake.verify_globs")
+endif()
+
+# LIB_CODEGEN_SRCS at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt:13 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/*.cpp")
+set(OLD_GLOB
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/safeareacontext-generated.cpp"
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/1c15d1j3/armeabi-v7a/CMakeFiles/cmake.verify_globs")
+endif()
+
+# LIB_CODEGEN_SRCS at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt:13 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/safeareacontext/*.cpp")
+set(OLD_GLOB
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/safeareacontext/ComponentDescriptors.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/safeareacontext/EventEmitters.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/safeareacontext/Props.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/safeareacontext/ShadowNodes.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/safeareacontext/States.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-safe-area-context/android/src/main/jni/../../../build/generated/source/codegen/jni/react/renderer/components/safeareacontext/safeareacontextJSI-generated.cpp"
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/1c15d1j3/armeabi-v7a/CMakeFiles/cmake.verify_globs")
+endif()
+
+# react_codegen_SRCS at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/CMakeLists.txt:9 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/*.cpp")
+set(OLD_GLOB
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/RNVectorIconsSpec-generated.cpp"
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/1c15d1j3/armeabi-v7a/CMakeFiles/cmake.verify_globs")
+endif()
+
+# react_codegen_SRCS at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/CMakeLists.txt:9 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/react/renderer/components/RNVectorIconsSpec/*.cpp")
+set(OLD_GLOB
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/react/renderer/components/RNVectorIconsSpec/ComponentDescriptors.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/react/renderer/components/RNVectorIconsSpec/EventEmitters.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/react/renderer/components/RNVectorIconsSpec/Props.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/react/renderer/components/RNVectorIconsSpec/RNVectorIconsSpecJSI-generated.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/react/renderer/components/RNVectorIconsSpec/ShadowNodes.cpp"
+  "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native-vector-icons/android/build/generated/source/codegen/jni/react/renderer/components/RNVectorIconsSpec/States.cpp"
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/android/app/.cxx/Debug/1c15d1j3/armeabi-v7a/CMakeFiles/cmake.verify_globs")
+endif()
+
 # override_cpp_SRC at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native/ReactAndroid/cmake-utils/ReactNative-application.cmake:50 (file)
 # input_SRC at /Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native/ReactAndroid/cmake-utils/ReactNative-application.cmake:55 (file)
 file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/user/StudioProjects/mobile-reactnative/WorkforceTracker/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/*.cpp")

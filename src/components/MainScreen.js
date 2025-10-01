@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   Platform,
   AppState,
@@ -16,6 +15,7 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   Button as PaperButton, 
   FAB, 
@@ -1205,6 +1205,15 @@ const MainScreen = ({ onLogout }) => {
     console.log('currentUser:', currentUser);
     
     try {
+      try {
+        const locationModule = require('../location.js');
+        locationModule?.logToRemote?.('Logout flow started', 'info');
+        await locationModule?.postSessionEvent?.('logout_started', {
+          userId: currentUser?.user_id || null,
+          shiftActive: !!isShiftActive
+        });
+      } catch {}
+
       // Перепроверяем при необходимости (без сброса при сетевой ошибке)
       let effectiveActive = !!isShiftActive;
       if (!effectiveActive && currentUser?.user_id) {
@@ -1232,6 +1241,12 @@ const MainScreen = ({ onLogout }) => {
                 try {
                   console.log('User confirmed shift interruption and logout');
                   if (currentUser && currentUser.user_id) {
+                    try {
+                      const locationModule = require('../location.js');
+                      await locationModule?.postSessionEvent?.('logout_confirmed_with_shift', {
+                        userId: currentUser.user_id
+                      });
+                    } catch {}
                     console.log('Auto-closing shift before logout...');
                     try {
                       const { stopTracking } = require('../location.js');
@@ -1265,6 +1280,12 @@ const MainScreen = ({ onLogout }) => {
                     }
                   }
                   await authService.logout();
+                  try {
+                    const locationModule = require('../location.js');
+                    await locationModule?.postSessionEvent?.('logout_completed', {
+                      userId: currentUser?.user_id || null
+                    });
+                  } catch {}
                   onLogout();
                 } catch (error) {
                   console.error('Error during logout with shift closure:', error);
@@ -1275,9 +1296,19 @@ const MainScreen = ({ onLogout }) => {
           ]
         );
       } else {
-        // Сохраняем накопленные геоданные даже если нет активной смены
-        if (currentUser && currentUser.user_id) {
-          try {
+        // Останавливаем BGGeo и сбрасываем конфигурацию даже без активной смены
+        try {
+          const { stopTracking, resetLocationInit } = require('../location.js');
+          await stopTracking();
+          try { await resetLocationInit(); } catch {}
+          console.log('BGGeo stopped and reset on logout (no active shift)');
+        } catch (e) {
+          console.error('Failed to stop BGGeo on logout (no active shift):', e?.message || e);
+        }
+
+        // Опционально сохраняем накопленные геоданные (через API), если требуется
+        try {
+          if (currentUser && currentUser.user_id) {
             console.log('Saving accumulated geo data before logout (no active shift)...');
             const phoneImei = await deviceUtils.getDeviceId();
             const geoResult = await geoService.saveGeoData(currentUser.user_id, 1, phoneImei);
@@ -1286,12 +1317,18 @@ const MainScreen = ({ onLogout }) => {
             } else {
               console.log('Failed to save geo data before logout (no active shift):', geoResult.error);
             }
-          } catch (e) {
-            console.error('Error saving geo data before logout (no active shift):', e?.message || e);
           }
+        } catch (e) {
+          console.error('Error saving geo data before logout (no active shift):', e?.message || e);
         }
-        
+
         await authService.logout();
+        try {
+          const locationModule = require('../location.js');
+          await locationModule?.postSessionEvent?.('logout_completed', {
+            userId: currentUser?.user_id || null
+          });
+        } catch {}
         onLogout();
       }
     } catch (error) {
@@ -1543,9 +1580,9 @@ const MainScreen = ({ onLogout }) => {
         backgroundColor={colors.primary}
         translucent={false}
       />
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['left','right','bottom']} style={styles.container}>
         {/* Appbar из React Native Paper вместо черной полоски */}
-        <Appbar.Header statusBarHeight={0} style={styles.appbarHeader}>
+        <Appbar.Header style={styles.appbarHeader}>
           {/* <Appbar.Content title={missingBadges.length > 0 && (
               <TouchableOpacity onPress={() => setShowHeaderBadges(v => !v)} style={styles.appbarBadge} accessibilityLabel="Проблемы с доступами">
                 <Text style={styles.appbarBadgeText}>!</Text>

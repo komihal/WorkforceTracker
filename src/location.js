@@ -108,21 +108,37 @@ function logToRemote(message, level = 'info') {
 }
 
 // Универсальная отправка событий BGGeo в мониторинговый webhook
-const postBgEvent = async (event, payload = {}) => {
+const postBgEvent = async (event, payload = {}, meta = {}) => {
   if (!webhookEnabled()) return;
+
+  const opts = meta || {};
+  const eventType = opts.type || event || 'bg_event';
+  const level = opts.level || 'info';
+
   try {
-    await sendToWebhook(
+    await sendToWebhookApi(
       {
         event,
+        level,
         payload,
         userId: currentUserId,
         placeId: currentPlaceId,
         phoneImei: currentPhoneImei,
         ts: Math.floor(Date.now() / 1000),
       },
-      'bg_event'
+      eventType
     );
   } catch {}
+};
+
+export const postSessionEvent = (action, data = {}, level = 'info') => {
+  return postBgEvent('session_state', {
+    action,
+    ...data,
+  }, {
+    type: 'session',
+    level,
+  });
 };
 
 export const sanitizeLicenseValue = (raw) => {
@@ -244,6 +260,9 @@ async function handlePermissionRevocation() {
 // Функция для сброса состояния инициализации
 export async function resetLocationInit() {
   console.log('Resetting location initialization state...');
+  postBgEvent('init_reset', {
+    ts: new Date().toISOString()
+  }, { type: 'init', level: 'info' }).catch(() => {});
   
   try {
     const state = await BGGeo.getState();
@@ -278,6 +297,9 @@ export async function initBgGeo() {
 
 export async function initLocation() {
   console.log(`[${new Date().toLocaleTimeString()}] ===== INIT LOCATION START =====`);
+  postBgEvent('init_start', {
+    timestamp: new Date().toISOString()
+  }, { type: 'init', level: 'info' }).catch(() => {});
   
   // Инициализация выполняется идемпотентно — без жёстких reset()
   
@@ -480,6 +502,10 @@ export async function initLocation() {
     const state = await Promise.race([readyPromise, timeoutPromise]);
     console.log('[BG][ready] enabled:', state.enabled, 'isMoving:', state.isMoving);
     console.log('[BG] BGGeo.ready() completed successfully');
+    postBgEvent('init_ready', {
+      enabled: state.enabled,
+      isMoving: state.isMoving
+    }, { type: 'init', level: 'info' }).catch(() => {});
     
     // Проверяем текущую конфигурацию
     const currentConfig = await BGGeo.getState();
@@ -566,7 +592,7 @@ export async function initLocation() {
             threshold: geoConfig.AUTO_SYNC_THRESHOLD,
             readyForBatch: count >= geoConfig.AUTO_SYNC_THRESHOLD,
             timestamp: new Date().toISOString()
-          }).catch(() => {});
+          }, { type: 'queue_status', level: 'info' }).catch(() => {});
         }
       }).catch(() => {});
       
@@ -614,7 +640,7 @@ export async function initLocation() {
     BGGeo.onMotionChange(e => {
       console.log('[BG][motionchange]', e.isMoving);
       console.log('🔵  setPace:', e.isMoving);
-      postBgEvent('motionchange', { isMoving: e.isMoving });
+      postBgEvent('motionchange', { isMoving: e.isMoving }, { type: 'motion_change', level: 'info' });
     });
     
     // Мониторинг batch-отправок через onSync (если доступен)
@@ -640,7 +666,7 @@ export async function initLocation() {
             lon: batch[batch.length - 1].coords?.longitude,
             timestamp: batch[batch.length - 1].timestamp
           } : null
-        }).catch(() => {});
+        }, { type: 'sync', level: 'info' }).catch(() => {});
       });
     }
 
@@ -731,6 +757,9 @@ export async function initLocation() {
         timestamp: new Date().toISOString(),
         success: r.status === 200 || r.status === 201,
         responseText: r.responseText?.substring(0, 200) || ''
+      }, {
+        type: 'native_uploader',
+        level: (r.status === 200 || r.status === 201) ? 'info' : 'error'
       }).catch(() => {});
     });
     
@@ -744,7 +773,7 @@ export async function initLocation() {
     BGGeo.onProviderChange(async (p) => {
       console.log('[BG][provider]', p.status, p.gps);
       console.log('🔵  Provider change:', p.status);
-      postBgEvent('providerchange', p);
+      postBgEvent('providerchange', p, { type: 'provider_change', level: 'info' });
       
       // Обработка отзыва разрешений
       if (p.status === 'DENIED' || p.status === 'RESTRICTED') {
@@ -756,19 +785,19 @@ export async function initLocation() {
     BGGeo.onActivityChange(e => {
       console.log('[BG][activity]', e.activity, e.confidence);
       console.log('🚘  DetectedActivity [type=' + e.activity + ', confidence=' + e.confidence + ']');
-      postBgEvent('activitychange', e);
+      postBgEvent('activitychange', e, { type: 'activity_change', level: 'info' });
     });
     
     BGGeo.onEnabledChange(enabled => {
       console.log('[BG][enabledChange]', enabled);
       console.log('✅  Started in foreground');
-      postBgEvent('enabledchange', { enabled });
+      postBgEvent('enabledchange', { enabled }, { type: 'enabled_change', level: 'info' });
     });
     
     BGGeo.onConnectivityChange(async (ev) => {
       console.log('[BG][connectivity]', ev.connected);
       console.log('🔵  Connectivity change:', ev.connected);
-      postBgEvent('connectivity', ev);
+      postBgEvent('connectivity', ev, { type: 'connectivity', level: 'info' });
       // При восстановлении сети инициируем немедленный sync накопленных точек
       if (ev.connected) {
         try {
@@ -784,7 +813,7 @@ export async function initLocation() {
     BGGeo.onAuthorization(async (auth) => {
       console.log('[BG][authorization]', auth.status);
       console.log('🔐  Authorization change:', auth.status);
-      postBgEvent('authorization', auth);
+      postBgEvent('authorization', auth, { type: 'authorization', level: 'info' });
       
       // Если авторизация отозвана
       if (auth.status === 'DENIED' || auth.status === 'RESTRICTED') {
@@ -804,7 +833,7 @@ export async function initLocation() {
           maximumAge: 0
         });
         console.log('[BG][heartbeat] warm location (no persist):', loc?.coords?.latitude, loc?.coords?.longitude);
-        postBgEvent('heartbeat', { lat: loc?.coords?.latitude, lon: loc?.coords?.longitude });
+        postBgEvent('heartbeat', { lat: loc?.coords?.latitude, lon: loc?.coords?.longitude }, { type: 'heartbeat', level: 'info' });
         // Сразу после persist пытаемся синхронизировать накопленные точки
         try {
           await BGGeo.sync();
@@ -814,7 +843,7 @@ export async function initLocation() {
         }
       } catch (e) {
         console.log('[BG][heartbeat] getCurrentPosition error:', String(e?.message || e));
-        postBgEvent('heartbeat_error', { message: String(e?.message || e) });
+        postBgEvent('heartbeat_error', { message: String(e?.message || e) }, { type: 'heartbeat_error', level: 'error' });
       }
     });
 
@@ -834,6 +863,10 @@ export async function initLocation() {
     
     initSucceeded = true;
     console.log('BackgroundGeolocation initialization completed successfully');
+    postBgEvent('init_success', {
+      enabled: finalState.enabled,
+      isMoving: finalState.isMoving
+    }, { type: 'init', level: 'info' }).catch(() => {});
     
     // Проверяем оптимизацию батареи согласно документации Transistorsoft
     try {
@@ -856,6 +889,9 @@ export async function initLocation() {
     lastInitError = error?.message || JSON.stringify(error);
     console.error('BackgroundGeolocation initialization failed:', lastInitError);
     console.error('Full error object:', error);
+    postBgEvent('init_error', {
+      message: lastInitError
+    }, { type: 'init', level: 'error' }).catch(() => {});
   }
 }
 
@@ -863,11 +899,13 @@ export async function initLocation() {
 export async function startTracking(userId) {
   if (!BGGeo) {
     console.warn('BGGeo not initialized');
+    postBgEvent('start_tracking_error', { reason: 'BGGeo_not_initialized' }, { type: 'tracking', level: 'error' }).catch(() => {});
     return;
   }
 
   // Сохраняем currentUserId для transform
   currentUserId = userId;
+  postBgEvent('start_tracking', { userId }, { type: 'tracking', level: 'info' }).catch(() => {});
   
   // Обновляем только user-зависимые параметры и секьюрные значения из ENV
   const geoConfig = getGeoConfig();
@@ -928,6 +966,7 @@ export async function startTracking(userId) {
       } catch {}
     } else {
       console.log('[BG] start() error:', msg);
+      postBgEvent('start_tracking_error', { message: msg }, { type: 'tracking', level: 'error' }).catch(() => {});
       throw e;
     }
   } finally {
@@ -952,11 +991,21 @@ export async function startTracking(userId) {
   
   const state = await BGGeo.getState();
   logNative('[TRACK] state after start', { enabled: state.enabled, isMoving: state.isMoving });
+  postBgEvent('start_tracking_state', { enabled: state.enabled, isMoving: state.isMoving }, { type: 'tracking', level: 'info' }).catch(() => {});
+
+  // Сообщаем, что пользователь вошёл и трекинг активирован
+  postBgEvent('session_state', {
+    action: 'login',
+    userId,
+    enabled: state.enabled,
+    isMoving: state.isMoving
+  }, { type: 'session', level: 'info' }).catch(() => {});
 }
 
 export async function stopTracking() {
   if (!BGGeo) {
     console.warn('BGGeo not initialized');
+    postBgEvent('stop_tracking_error', { reason: 'BGGeo_not_initialized' }, { type: 'tracking', level: 'error' }).catch(() => {});
     return;
   }
   
@@ -970,9 +1019,11 @@ export async function stopTracking() {
     }
   } catch (e) {
     console.log('[BG] stopTracking: sync error:', e?.message || e);
+    postBgEvent('stop_tracking_sync_error', { message: String(e?.message || e) }, { type: 'tracking', level: 'error' }).catch(() => {});
   }
   
   await BGGeo.stop();
+  postBgEvent('stop_tracking', {}, { type: 'tracking', level: 'info' }).catch(() => {});
   
   if (Platform.OS === 'android' && Config.BG_FORCE_PACE_ON_START === '1') {
     try { 
