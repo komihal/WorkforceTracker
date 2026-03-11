@@ -1,16 +1,12 @@
-import axios from 'axios';
 import BackgroundGeolocation from 'react-native-background-geolocation';
-import { API_CONFIG, getApiTokenHeaders } from '../config/api';
-// import { refreshShiftStatusNow } from './shiftStatusService'; // Убираем автоматический refresh
+import { API_CONFIG } from '../config/api';
 import { Platform } from 'react-native';
 import { getGeoConfig } from '../config/geoConfig';
+import { setLastGeoSaveAt } from '../store/shiftStore';
+import httpClient from '../api/httpClient';
 
 class GeoService {
   constructor() {
-    this.axiosInstance = axios.create({
-      baseURL: API_CONFIG.BASE_URL,
-      timeout: 10000,
-    });
     this.geoData = [];
     this.isEmulator = false;
     this.checkIfEmulator();
@@ -88,10 +84,9 @@ class GeoService {
 
       console.log(`[${new Date().toLocaleTimeString()}] saveGeoData: sending`, this.geoData.length, 'point(s)');
 
-      const response = await this.axiosInstance.post(
+      const response = await httpClient.post(
         API_CONFIG.ENDPOINTS.DB_SAVE,
-        payload,
-        { headers: { ...getApiTokenHeaders(), 'Content-Type': 'application/json' } }
+        payload
       );
 
       if (response?.data && (response.data.success === true || response.status >= 200 && response.status < 300)) {
@@ -99,8 +94,7 @@ class GeoService {
         
         // Очищаем отправленные данные
         this.geoData = [];
-        try { global.__LAST_DB_SAVE_AT__ = new Date().toISOString(); } catch {}
-        // Убираем автоматический refresh - теперь статус обновляется по требованию
+        setLastGeoSaveAt(new Date().toISOString());
         console.log('[GeoService] Geo data uploaded successfully');
         return { success: true, data: response.data };
       } else {

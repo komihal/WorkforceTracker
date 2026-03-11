@@ -1,23 +1,14 @@
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_CONFIG, getAuthHeaders } from '../config/api';
+import { API_CONFIG } from '../config/api';
+import httpClient from '../api/httpClient';
 
 class AuthService {
-  constructor() {
-    this.axiosInstance = axios.create({
-      baseURL: API_CONFIG.BASE_URL,
-      timeout: 10000,
-    });
-  }
-
   async login(userLogin, userPassword) {
     try {
-      const response = await this.axiosInstance.post(API_CONFIG.ENDPOINTS.AUTH, {
+      const response = await httpClient.post(API_CONFIG.ENDPOINTS.AUTH, {
         api_token: API_CONFIG.API_TOKEN,
         user_login: userLogin,
         user_password: userPassword,
-      }, {
-        headers: { ...getAuthHeaders(), 'Authorization': `Bearer ${API_CONFIG.API_TOKEN}` },
       });
 
       if (response.data && response.data.success) {
