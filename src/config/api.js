@@ -1,6 +1,8 @@
+import Config from 'react-native-config';
+
 export const API_CONFIG = {
-  BASE_URL: 'https://api.tabelshik.com',
-  API_TOKEN: 'wqHJerK834',
+  BASE_URL: Config.API_URL || 'https://api.tabelshik.com',
+  API_TOKEN: Config.API_TOKEN || '',
   ENDPOINTS: {
     AUTH: '/auth/',
     PUNCH: '/api/punch/',
@@ -18,7 +20,7 @@ export const API_CONFIG = {
   },
   HEADERS: {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer wqHJerK834',
+    'Authorization': `Bearer ${Config.API_TOKEN || ''}`,
   },
 };
 

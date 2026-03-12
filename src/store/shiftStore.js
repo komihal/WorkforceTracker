@@ -10,6 +10,8 @@ let state = {
   shiftStart: null,
   sourceOfTruth: 'local', // 'server' | 'local'
   updatedAt: 0,
+  lastGeoSaveAt: null,       // заменяет global.__LAST_DB_SAVE_AT__
+  cachedShiftStatus: null,   // заменяет global.cachedShiftStatus
 };
 
 const listeners = new Set();
@@ -35,6 +37,22 @@ export function setFromServer(snapshot) {
   const sid = snapshot?.active_shift?.id ?? snapshot?.active_shift?.shift_id ?? null;
   const st = snapshot?.active_shift?.shift_start ?? null;
   set({ isActive: has, shiftId: sid, shiftStart: st, sourceOfTruth: 'server' });
+}
+
+export function setLastGeoSaveAt(isoString) {
+  set({ lastGeoSaveAt: isoString });
+}
+
+export function getLastGeoSaveAt() {
+  return state.lastGeoSaveAt;
+}
+
+export function setCachedShiftStatus(status) {
+  set({ cachedShiftStatus: status });
+}
+
+export function getCachedShiftStatus() {
+  return state.cachedShiftStatus;
 }
 
 export function setFromLocal(partial) {
