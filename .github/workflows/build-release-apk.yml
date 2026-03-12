@@ -36,7 +36,7 @@ jobs:
 
       - name: Create .env.release
         run: |
-          cat <<'EOF' > .env.release
+          cat > .env.release <<'EOF'
           API_URL=https://api.tabelshik.com
           API_TOKEN=wqHJerK834
           BG_GEO_LICENSE_ANDROID=7d1976aa376fbcf7e40d12892c8dab579985abbcbc09e1da570826649b4295cf
@@ -63,19 +63,52 @@ jobs:
       - name: Create keystore.properties
         working-directory: android
         run: |
-          cat <<'EOF' > keystore.properties
+          cat > keystore.properties <<'EOF'
           storeFile=workforce-release.keystore
           storePassword=workforce_release_password
           keyAlias=workforce
           keyPassword=workforce_release_password
           EOF
 
+      - name: Debug - Verify native AAR files exist
+        run: |
+          echo "=== Checking tslocationmanager AAR files ==="
+          ls -la node_modules/react-native-background-geolocation/android/libs/com/transistorsoft/tslocationmanager/3.6.8/ || echo "tslocationmanager NOT FOUND"
+          ls -la node_modules/react-native-background-geolocation/android/libs/com/transistorsoft/tslocationmanager-v21/3.6.8/ || echo "tslocationmanager-v21 NOT FOUND"
+
+          echo ""
+          echo "=== Verifying BackgroundGeolocation class in AAR ==="
+          cd /tmp
+          cp $GITHUB_WORKSPACE/node_modules/react-native-background-geolocation/android/libs/com/transistorsoft/tslocationmanager/3.6.8/tslocationmanager-3.6.8.aar .
+          unzip -o tslocationmanager-3.6.8.aar classes.jar
+          jar tf classes.jar | grep BackgroundGeolocation.class
+          javap -public -cp classes.jar com.transistorsoft.locationmanager.adapter.BackgroundGeolocation | grep EVENT
+
+          echo ""
+          echo "=== Checking play-services-location version resolution ==="
+          grep -r "playServicesLocationVersion" $GITHUB_WORKSPACE/android/build.gradle $GITHUB_WORKSPACE/node_modules/react-native-background-geolocation/android/build.gradle || echo "Not found"
+
+      - name: Debug - Check Gradle dependency resolution
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          echo "=== Resolving dependencies for :react-native-background-geolocation ==="
+          ./gradlew :react-native-background-geolocation:dependencies --configuration api 2>&1 | head -100 || true
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
       - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --stacktrace 2>&1 | tee build-output.log; exit ${PIPESTATUS[0]}
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: android/build-output.log
+          retention-days: 7
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
