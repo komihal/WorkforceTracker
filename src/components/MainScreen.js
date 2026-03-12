@@ -197,13 +197,15 @@ const MainScreen = ({ onLogout }) => {
       }
       
       // Если чего-то не хватает — добавим предупреждение с текущим статусом BGGeo
+      const bgStatusMissing = getBgGeoInitStatus();
+      const missingText = missingPermissions.join(', ');
       const statusLines = [
-        `initSucceeded: ${bgStatus.initSucceeded}`,
-        `initAttempted: ${bgStatus.initAttempted}`,
-        `isInit: ${bgStatus.isInit}`,
-        `isStarting: ${bgStatus.isStartingTracking}`,
-        `hasLicense: ${bgStatus.hasLicense}`,
-        `lastInitError: ${bgStatus.lastInitError || 'нет'}`,
+        `initSucceeded: ${bgStatusMissing.initSucceeded}`,
+        `initAttempted: ${bgStatusMissing.initAttempted}`,
+        `isInit: ${bgStatusMissing.isInit}`,
+        `isStarting: ${bgStatusMissing.isStartingTracking}`,
+        `hasLicense: ${bgStatusMissing.hasLicense}`,
+        `lastInitError: ${bgStatusMissing.lastInitError || 'нет'}`,
       ];
 
       Alert.alert(
@@ -290,7 +292,8 @@ const MainScreen = ({ onLogout }) => {
       console.error('[Permissions] Error in permissions dialog:', error);
       Alert.alert('Ошибка', 'Не удалось открыть настройки разрешений');
     }
-  }, [refreshIndicators, requestBatteryOptimization, indicators]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshIndicators, indicators]);
 
   const captureSelfie = async () => {
     try {
@@ -499,7 +502,8 @@ const MainScreen = ({ onLogout }) => {
       }
       sub.remove();
     };
-  }, []); // Убираем shiftStatusManager из зависимостей, чтобы избежать бесконечного цикла
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Убираем зависимости, чтобы избежать бесконечного цикла
 
   // Обновление состояния смены при фокусе на MainScreen (для навигации между вкладками)
   useEffect(() => {
@@ -614,6 +618,7 @@ const MainScreen = ({ onLogout }) => {
     } catch (e) {
       // fail-safe: не обновляем state при исключениях
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Функция для обновления всех данных при pull-to-refresh
@@ -692,6 +697,7 @@ const MainScreen = ({ onLogout }) => {
     } catch (error) {
       console.error('[MainScreen] refreshAllData error:', error);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, shiftStatusManager, refreshIndicators]);
 
   useEffect(() => {
@@ -1562,6 +1568,7 @@ const MainScreen = ({ onLogout }) => {
     };
     
     fetchUserShifts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
   // Список отсутствующих разрешений/состояний для badge

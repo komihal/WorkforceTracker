@@ -95,65 +95,36 @@ class DeviceUtils {
   }
 
   // Получение информации о сети
+  // TODO: заменить заглушки на реальные вызовы (react-native-netinfo)
   async getNetworkInfo() {
-    try {
-      // В реальном приложении здесь будет получение информации о сети
-      return {
-        isConnected: true,
-        type: 'wifi', // wifi, cellular, none
-        strength: 'strong',
-        carrier: 'Test Carrier',
-      };
-    } catch (error) {
-      console.error('Error getting network info:', error);
-      return {
-        isConnected: false,
-        type: 'none',
-        strength: 'unknown',
-        carrier: 'Unknown',
-      };
-    }
+    return {
+      isConnected: true,
+      type: 'wifi',
+      strength: 'strong',
+      carrier: 'Test Carrier',
+    };
   }
 
   // Получение информации о батарее
+  // TODO: заменить заглушку на реальный вызов (react-native-device-info)
   async getBatteryInfo() {
-    try {
-      // В реальном приложении здесь будет получение информации о батарее
-      return {
-        level: 85, // Процент заряда (0-100)
-        isCharging: false,
-        isLow: false,
-      };
-    } catch (error) {
-      console.error('Error getting battery info:', error);
-      return {
-        level: 0,
-        isCharging: false,
-        isLow: true,
-      };
-    }
+    return {
+      level: 85,
+      isCharging: false,
+      isLow: false,
+    };
   }
 
   // Проверка доступности камеры
+  // TODO: заменить заглушку на реальную проверку
   async isCameraAvailable() {
-    try {
-      // В реальном приложении здесь будет проверка доступности камеры
-      return true;
-    } catch (error) {
-      console.error('Error checking camera availability:', error);
-      return false;
-    }
+    return true;
   }
 
   // Проверка доступности геолокации
+  // TODO: заменить заглушку на реальную проверку
   async isLocationAvailable() {
-    try {
-      // В реальном приложении здесь будет проверка доступности геолокации
-      return true;
-    } catch (error) {
-      console.error('Error checking location availability:', error);
-      return false;
-    }
+    return true;
   }
 
   // Получение размера экрана
