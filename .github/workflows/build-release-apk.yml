@@ -70,30 +70,26 @@ jobs:
           keyPassword=workforce_release_password
           EOF
 
-      - name: Debug - Verify native AAR files exist
+      - name: Patch background-geolocation for CI build
         run: |
-          echo "=== Checking tslocationmanager AAR files ==="
-          ls -la node_modules/react-native-background-geolocation/android/libs/com/transistorsoft/tslocationmanager/3.6.8/ || echo "tslocationmanager NOT FOUND"
-          ls -la node_modules/react-native-background-geolocation/android/libs/com/transistorsoft/tslocationmanager-v21/3.6.8/ || echo "tslocationmanager-v21 NOT FOUND"
+          BG_GRADLE="node_modules/react-native-background-geolocation/android/build.gradle"
+          echo "=== Before patch ==="
+          grep -n "libs\|version:" "$BG_GRADLE" || true
+
+          # 1. Replace relative ./libs repo path with absolute workspace path
+          sed -i "s|url './libs'|url '${GITHUB_WORKSPACE}/node_modules/react-native-background-geolocation/android/libs'|g" "$BG_GRADLE"
+
+          # 2. Pin tslocationmanager version to 3.6.8 instead of dynamic '+'
+          sed -i "s|version: '+'|version: '3.6.8'|g" "$BG_GRADLE"
 
           echo ""
-          echo "=== Verifying BackgroundGeolocation class in AAR ==="
-          cd /tmp
-          cp $GITHUB_WORKSPACE/node_modules/react-native-background-geolocation/android/libs/com/transistorsoft/tslocationmanager/3.6.8/tslocationmanager-3.6.8.aar .
-          unzip -o tslocationmanager-3.6.8.aar classes.jar
-          jar tf classes.jar | grep BackgroundGeolocation.class
-          javap -public -cp classes.jar com.transistorsoft.locationmanager.adapter.BackgroundGeolocation | grep EVENT
+          echo "=== After patch ==="
+          grep -n "libs\|version:" "$BG_GRADLE" || true
 
+          # 3. Verify AAR files exist
           echo ""
-          echo "=== Checking play-services-location version resolution ==="
-          grep -r "playServicesLocationVersion" $GITHUB_WORKSPACE/android/build.gradle $GITHUB_WORKSPACE/node_modules/react-native-background-geolocation/android/build.gradle || echo "Not found"
-
-      - name: Debug - Check Gradle dependency resolution
-        working-directory: android
-        run: |
-          chmod +x gradlew
-          echo "=== Resolving dependencies for :react-native-background-geolocation ==="
-          ./gradlew :react-native-background-geolocation:dependencies --configuration api 2>&1 | head -100 || true
+          echo "=== Verifying AAR files ==="
+          ls -la "${GITHUB_WORKSPACE}/node_modules/react-native-background-geolocation/android/libs/com/transistorsoft/tslocationmanager/3.6.8/"
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
