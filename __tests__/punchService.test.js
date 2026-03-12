@@ -15,16 +15,30 @@ jest.mock('../src/config/api', () => ({
   }),
 }));
 
-import PunchService from '../src/services/punchService';
+jest.mock('../src/api/httpClient', () => {
+  const client = {
+    post: jest.fn(),
+    get: jest.fn(),
+    interceptors: { request: { use: jest.fn() } },
+  };
+  return { __esModule: true, default: client };
+});
 
-// Spy on the actual axios instance methods
-const mockPost = jest.spyOn(PunchService.axiosInstance, 'post');
-const mockGet = jest.spyOn(PunchService.axiosInstance, 'get');
+jest.mock('../src/store/shiftStore', () => ({
+  setCachedShiftStatus: jest.fn((s) => { global.__testCachedShiftStatus = s; }),
+  getCachedShiftStatus: jest.fn(() => global.__testCachedShiftStatus),
+}));
+
+import PunchService from '../src/services/punchService';
+import httpClient from '../src/api/httpClient';
+
+const mockPost = httpClient.post;
+const mockGet = httpClient.get;
 
 beforeEach(() => {
   mockPost.mockReset();
   mockGet.mockReset();
-  delete global.cachedShiftStatus;
+  global.__testCachedShiftStatus = null;
 });
 
 describe('PunchService', () => {
@@ -275,9 +289,9 @@ describe('PunchService', () => {
 
       await PunchService.getShiftStatus(42);
 
-      expect(global.cachedShiftStatus).toBeDefined();
-      expect(global.cachedShiftStatus.hasActiveShift).toBe(true);
-      expect(global.cachedShiftStatus.userId).toBe(42);
+      expect(global.__testCachedShiftStatus).toBeDefined();
+      expect(global.__testCachedShiftStatus.hasActiveShift).toBe(true);
+      expect(global.__testCachedShiftStatus.userId).toBe(42);
     });
 
     it('returns inactive shift data', async () => {
@@ -290,7 +304,7 @@ describe('PunchService', () => {
     });
 
     it('uses cached status on network error (cache fresh)', async () => {
-      global.cachedShiftStatus = {
+      global.__testCachedShiftStatus = {
         hasActiveShift: true,
         timestamp: Date.now(),
         userId: 42,
@@ -306,7 +320,7 @@ describe('PunchService', () => {
     });
 
     it('does not use expired cache', async () => {
-      global.cachedShiftStatus = {
+      global.__testCachedShiftStatus = {
         hasActiveShift: true,
         timestamp: Date.now() - 10 * 60 * 1000,
         userId: 42,
@@ -321,7 +335,7 @@ describe('PunchService', () => {
     });
 
     it('does not use cache for different user', async () => {
-      global.cachedShiftStatus = {
+      global.__testCachedShiftStatus = {
         hasActiveShift: true,
         timestamp: Date.now(),
         userId: 99,

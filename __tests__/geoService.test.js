@@ -160,14 +160,7 @@ describe('GeoService', () => {
       const BackgroundGeolocation = require('react-native-background-geolocation');
       BackgroundGeolocation.getCurrentPosition.mockResolvedValue(mockLocation);
 
-      const result = await GeoService.getCurrentLocation();
-
-      expect(result).toEqual({
-        latitude: undefined,
-        longitude: undefined,
-        altitude: undefined,
-        accuracy: undefined,
-      });
+      await expect(GeoService.getCurrentLocation()).rejects.toThrow('Invalid coordinates');
     });
   });
 
