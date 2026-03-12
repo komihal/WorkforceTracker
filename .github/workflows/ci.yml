@@ -1,0 +1,81 @@
+name: CI — Lint, Tests & Bundle Check
+
+on:
+  push:
+    branches: ["main", "develop", "claude/**"]
+  pull_request:
+    branches: ["main", "develop"]
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Lint + Jest Unit Tests
+  # ─────────────────────────────────────────────
+  test:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Jest (with coverage)
+        run: npm run test:ci
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-coverage
+          path: coverage/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # Job 2: Android Bundle Check
+  # ─────────────────────────────────────────────
+  bundle-android:
+    name: Android JS Bundle
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create .env from template
+        run: |
+          if [ -f env.template ]; then
+            cp env.template .env
+          else
+            touch .env
+          fi
+
+      - name: Check Android JS bundle (production)
+        run: |
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output /tmp/android_bundle.js \
+            --assets-dest /tmp/android_assets
+          echo "Bundle size: $(wc -c < /tmp/android_bundle.js) bytes"
