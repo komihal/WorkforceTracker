@@ -1,4 +1,5 @@
 import { API_CONFIG } from '../config/api';
+import { unixSec } from '../utils/dateUtils';
 
 // Безопасный парсинг JSON с логированием сырого ответа
 async function readJsonSafe(response, contextLabel = 'response') {
@@ -102,7 +103,7 @@ class ShiftStatusManager {
   
   // Отправка punch (начало/конец смены)
   async sendPunch(status, photoName, tsOverride) {
-    const timestamp = tsOverride || Math.floor(Date.now() / 1000);
+    const timestamp = tsOverride || unixSec();
     const punchData = {
       api_token: API_CONFIG.API_TOKEN,
       user_id: this.userId,

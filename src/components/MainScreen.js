@@ -31,24 +31,20 @@ import paperTheme from '../styles/paperTheme';
 import { StatusBar } from 'react-native';
 import authService from '../services/authService';
 import Config from 'react-native-config';
-import { postLocationBatch } from '../api';
 import punchService from '../services/punchService';
 import geoService from '../services/geoService';
-import backgroundService from '../services/backgroundService';
 import cameraService from '../services/cameraService';
-import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
-import { runSequentialPermissionFlow, forceShowBackgroundPermissionDialog, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
+import { runSequentialPermissionFlow, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
 import { getBgGeoInitStatus, getLicenseInfo } from '../location';
 import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
 import ShiftStatusManager from '../services/shiftStatusService';
-// import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
-// geo endpoint/test toggles removed
-// DebugBgScreen and BgGeoTestScreen removed - no longer needed
 import { useShiftStore, setFromServer } from '../store/shiftStore';
 import { guardedAlert } from '../ui/alert';
 import { styles } from './MainScreen.styles';
 import { colors, shadows } from '../styles/colors';
+import { usePunchOperation } from '../hooks/usePunchOperation';
+import { getMonthRange } from '../utils/dateUtils';
 
 const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -314,7 +310,15 @@ const MainScreen = ({ onLogout }) => {
       return null;
     }
   };
-  
+
+  // Punch In / Punch Out через общий хук
+  const { handlePunchIn, handlePunchOut } = usePunchOperation({
+    currentUser,
+    shiftStatusManager,
+    captureSelfie,
+    setIsLoading,
+  });
+
   // Guards для предотвращения повторных вызовов
   const batteryOptimizationRequested = useRef(false);
   const locationPermissionsRequested = useRef(false);
@@ -707,213 +711,6 @@ const MainScreen = ({ onLogout }) => {
     return () => clearInterval(timer);
   }, [refreshIndicators]);
 
-  // Проверка статуса работника и смены
-  // Функция checkWorkerStatus удалена - теперь используется ShiftStatusManager
-
-  // Начало смены
-  const handlePunchIn = async () => {
-    if (!currentUser) {
-      Alert.alert('Ошибка', 'Пользователь не найден');
-      return;
-    }
-
-    if (!shiftStatusManager) {
-      Alert.alert('Ошибка', 'Сервис статуса смены не инициализирован');
-      return;
-    }
-
-    // Устанавливаем состояние загрузки в самом начале
-    setIsLoading(true);
-
-    // Проверяем текущий статус через новый сервис
-    try {
-      const currentStatus = await shiftStatusManager.getCurrentStatus();
-      console.log('Current status before punch in:', currentStatus);
-      
-      if (currentStatus.has_active_shift) {
-        Alert.alert('Смена уже активна', 'У вас уже есть активная смена');
-        setIsLoading(false);
-        return;
-      }
-      
-      // Проверяем статус рабочего
-      const workerStatus = (currentStatus?.worker?.worker_status) || currentStatus?.worker_status || 'активен';
-      const normalized = normalizeStatus(workerStatus);
-      
-      if (normalized === WorkerStatus.BLOCKED) {
-        Alert.alert('Доступ заблокирован', 'Ваш пользователь заблокирован администратором. Обратитесь к администратору.');
-        setIsLoading(false);
-        return;
-      }
-      
-      if (normalized === WorkerStatus.FIRED) {
-        Alert.alert('Доступ запрещен', 'Ваш пользователь уволен.');
-        setIsLoading(false);
-        return;
-      }
-      
-      if (!canStartShift(normalized)) {
-        Alert.alert('Доступ запрещен', 'Ваш статус не позволяет начать смену.');
-        setIsLoading(false);
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking current status:', error);
-      Alert.alert('Ошибка', 'Не удалось проверить текущий статус.');
-      setIsLoading(false);
-      return;
-    }
-
-    // Затем проверяем разрешения на геолокацию (быстрый поток в 2 клика)
-    try {
-      const hasAlways = await requestBackgroundLocationTwoClicks();
-      if (!hasAlways) {
-        Alert.alert('Фоновая геолокация', 'Для начала смены включите «Разрешать всегда» в настройках.');
-        setIsLoading(false);
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking location permissions:', error);
-      Alert.alert('Ошибка разрешений', 'Не удалось проверить/включить фоновую геолокацию.');
-      setIsLoading(false);
-      return;
-    }
-
-    // Предстарт: поднимаем трекинг перед отправкой punch, чтобы иметь активный FG-сервис
-    let preStarted = false;
-    let ensureTrackingRef = null;
-    let stopTrackingRef = null;
-    try {
-      const loc = require('../location.js');
-      ensureTrackingRef = loc.ensureTracking;
-      stopTrackingRef = loc.stopTracking;
-    } catch {}
-    if (currentUser?.user_id && ensureTrackingRef) {
-      try {
-        await ensureTrackingRef(currentUser.user_id);
-        preStarted = true;
-      } catch (e) {
-        console.log('Pre-start ensureTracking failed:', e?.message || e);
-      }
-    }
-
-    try {
-      // Селфи через VisionCamera
-      const selfie = await captureSelfie();
-      if (!selfie || !selfie.uri) {
-        if (preStarted && stopTrackingRef) { try { await stopTrackingRef(); } catch {} }
-        Alert.alert('Требуется фото', 'Для начала смены необходимо сделать фото.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Получаем текущую геолокацию
-      const location = await geoService.getCurrentLocation();
-
-      // Добавляем геопозицию с правильным порядком параметров
-      console.log('Adding geo point for punch in:', location);
-      
-      // Отладочное логирование для проверки данных о высоте
-      console.log('=== ALTITUDE DEBUG ===');
-      console.log('location.altitude:', location.altitude);
-      console.log('location.altitude_msl:', location.altitude_msl);
-      console.log('location.accuracy:', location.accuracy);
-      console.log('=== END DEBUG ===');
-
-      // Получаем точные данные о высоте
-      const altitudeData = geoService.getAccurateAltitudeData(location);
-      const geoPoint = geoService.addGeoPoint(
-        location.latitude,    // lat
-        location.longitude,   // lon
-        altitudeData.alt,     // alt
-        altitudeData.altmsl,  // altMsl
-        altitudeData.hasalt,  // hasAlt
-        altitudeData.hasaltmsl, // hasAltMsl
-        altitudeData.hasaltmslaccuracy, // hasAltMslAccuracy
-        altitudeData.mslaccuracyMeters  // mslAccuracyMeters
-      );
-      console.log('Added geo point for punch in:', geoPoint);
-
-      // Параллелим загрузку фото и сохранение геоданных, punch отправляем сразу
-      const tsSec = Math.floor(Date.now() / 1000);
-      const phoneImeiIn = await deviceUtils.getDeviceId();
-      const photoNameIn = `punch_1_${tsSec}.jpg`;
-
-      const uploadInPromise = fileUploadService.uploadShiftPhoto(
-        {
-          uri: selfie.uri,
-          type: selfie.type || 'image/jpeg',
-          fileName: photoNameIn,
-        },
-        currentUser.user_id || 123,
-        phoneImeiIn,
-        'start'
-      ).then((res) => {
-        if (!res?.success) {
-          console.log('Shift start photo upload failed:', res?.error || res);
-        }
-        return res;
-      }).catch((e) => {
-        console.log('Shift start photo upload exception:', e?.message || e);
-      });
-
-      const saveGeoInPromise = geoService.saveGeoData(
-        currentUser.user_id || 123,
-        1,
-        phoneImeiIn
-      ).catch((e) => console.log('saveGeoData (in) error:', e?.message || e));
-
-      // Отправляем punch немедленно с синхронизированным именем фото и timestamp
-      const result = await shiftStatusManager.sendPunch(1, photoNameIn, tsSec); // 1 = начало смены
-
-      if (result.success) {
-        Alert.alert('Успех', 'Смена начата!');
-        
-        // Дополнительно обновляем UI после успешного punch
-        try {
-          console.log('[MainScreen] Manually refreshing status after successful punch in...');
-          const { refreshShiftStatusNow } = require('../services/shiftStatusService');
-          const updatedStatus = await refreshShiftStatusNow(currentUser.user_id);
-          if (shiftStatusManager && shiftStatusManager.updateUI) {
-            shiftStatusManager.updateUI(updatedStatus);
-          }
-        } catch (e) {
-          console.log('[MainScreen] Failed to manually refresh status after punch in:', e?.message || e);
-        }
-        
-        // Запускаем отслеживание геолокации при начале смены
-        try {
-          const { ensureTracking } = require('../location.js');
-          if (currentUser?.user_id) {
-            await ensureTracking(currentUser.user_id);
-            console.log('Location tracking started on punch in for user:', currentUser.user_id);
-          } else {
-            console.log('Cannot start tracking on punch in: currentUser.user_id is not available');
-          }
-          
-          // Инициализируем backgroundService для фоновой отправки
-          console.log('Initializing backgroundService for punch in...');
-          const phoneImei = await deviceUtils.getDeviceId();
-          await backgroundService.initialize(currentUser.user_id, 1, phoneImei, __DEV__);
-          console.log('BackgroundService initialized for punch in');
-        } catch (e) {
-          console.error('Failed to start tracking on punch in:', e?.message || e);
-        }
-      } else {
-        if (preStarted && stopTrackingRef) { try { await stopTrackingRef(); } catch {} }
-        Alert.alert('Ошибка', result.error);
-      }
-
-      // Не блокируем UI ожиданием — фоновые операции сами завершатся
-      Promise.allSettled([uploadInPromise, saveGeoInPromise]).then(() => {}).catch(() => {});
-    } catch (error) {
-      if (preStarted && stopTrackingRef) { try { await stopTrackingRef(); } catch {} }
-      Alert.alert('Ошибка', 'Не удалось начать смену');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Запрос на разблокировку
   const handleRequestUnblock = async () => {
     if (!currentUser) return;
@@ -989,161 +786,6 @@ const MainScreen = ({ onLogout }) => {
           { text: 'Отмена', style: 'cancel' }
         ]
       );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Завершение смены
-  const handlePunchOut = async () => {
-    if (!currentUser) {
-      Alert.alert('Ошибка', 'Пользователь не найден');
-      return;
-    }
-
-    if (!shiftStatusManager) {
-      Alert.alert('Ошибка', 'Сервис статуса смены не инициализирован');
-      return;
-    }
-
-    // Проверяем текущий статус через новый сервис
-    try {
-      const currentStatus = await shiftStatusManager.getCurrentStatus();
-      console.log('Current status before punch out:', currentStatus);
-      
-      if (!currentStatus.has_active_shift) {
-        Alert.alert('Нет активной смены', 'У вас нет активной смены для завершения');
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking current status:', error);
-      Alert.alert('Ошибка', 'Не удалось проверить текущий статус.');
-      return;
-    }
-
-    // Затем проверяем разрешения на геолокацию (быстрый поток в 2 клика)
-    try {
-      const hasAlways = await requestBackgroundLocationTwoClicks();
-      if (!hasAlways) {
-        Alert.alert('Фоновая геолокация', 'Для завершения смены включите «Разрешать всегда» в настройках.');
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking location permissions:', error);
-      Alert.alert('Ошибка разрешений', 'Не удалось проверить/включить фоновую геолокацию.');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // Селфи через VisionCamera
-      const selfie = await captureSelfie();
-      if (!selfie || !selfie.uri) {
-        Alert.alert('Требуется фото', 'Для завершения смены необходимо сделать фото.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Получаем текущую геолокацию
-      const location = await geoService.getCurrentLocation();
-
-      // Добавляем финальную геопозицию с правильным порядком параметров
-      console.log('Adding geo point for punch out:', location);
-
-      // Получаем точные данные о высоте
-      const altitudeData = geoService.getAccurateAltitudeData(location);
-      
-      // Отладочное логирование для проверки данных о высоте
-      console.log('=== ALTITUDE DEBUG ===');
-      console.log('location.altitude:', location.altitude);
-      console.log('location.altitude_msl:', location.altitude_msl);
-      console.log('location.accuracy:', location.accuracy);
-      console.log('=== END DEBUG ===');
-
-      const geoPoint = geoService.addGeoPoint(
-        location.latitude,    // lat
-        location.longitude,   // lon
-        altitudeData.alt,     // alt
-        altitudeData.altmsl,  // altMsl
-        altitudeData.hasalt,  // hasAlt
-        altitudeData.hasaltmsl, // hasAltMsl
-        altitudeData.hasaltmslaccuracy, // hasAltMslAccuracy
-        altitudeData.mslaccuracyMeters  // mslAccuracyMeters
-      );
-      console.log('Added geo point for punch out:', geoPoint);
-
-      // Параллелим загрузку фото и сохранение геоданных, punch отправляем сразу
-      const tsSecOut = Math.floor(Date.now() / 1000);
-      const phoneImeiOut = await deviceUtils.getDeviceId();
-      const photoNameOut = `punch_0_${tsSecOut}.jpg`;
-
-      const uploadOutPromise = fileUploadService.uploadShiftPhoto(
-        {
-          uri: selfie.uri,
-          type: selfie.type || 'image/jpeg',
-          fileName: photoNameOut,
-        },
-        currentUser.user_id || 123,
-        phoneImeiOut,
-        'end'
-      ).then((res) => {
-        if (!res?.success) {
-          console.log('Shift end photo upload failed:', res?.error || res);
-        }
-        return res;
-      }).catch((e) => {
-        console.log('Shift end photo upload exception:', e?.message || e);
-      });
-
-      const saveGeoOutPromise = geoService.saveGeoData(
-        currentUser.user_id || 123,
-        1,
-        phoneImeiOut
-      ).catch((e) => console.log('saveGeoData (out) error:', e?.message || e));
-
-      // Отправляем punch немедленно с синхронизированным именем фото и timestamp
-      const result = await shiftStatusManager.sendPunch(0, photoNameOut, tsSecOut); // 0 = завершение смены
-
-      if (result.success) {
-        Alert.alert('Успех', 'Смена завершена!');
-        
-        // Дополнительно обновляем UI после успешного punch
-        try {
-          console.log('[MainScreen] Manually refreshing status after successful punch out...');
-          const { refreshShiftStatusNow } = require('../services/shiftStatusService');
-          const updatedStatus = await refreshShiftStatusNow(currentUser.user_id);
-          if (shiftStatusManager && shiftStatusManager.updateUI) {
-            shiftStatusManager.updateUI(updatedStatus);
-          }
-        } catch (e) {
-          console.log('[MainScreen] Failed to manually refresh status after punch out:', e?.message || e);
-        }
-        
-        // Сначала дожидаемся выгрузки геоданных, затем останавливаем трекинг
-        try {
-          console.log('[MainScreen] Waiting for geo data upload before stopping tracking...');
-          await saveGeoOutPromise;
-          console.log('[MainScreen] Geo data upload completed');
-        } catch (e) {
-          console.log('[MainScreen] Geo data upload failed:', e?.message || e);
-        }
-        
-        // Останавливаем отслеживание геолокации при завершении смены
-        try {
-          const { stopTracking } = require('../location.js');
-          await stopTracking();
-          console.log('Location tracking stopped on punch out');
-        } catch (e) {
-          console.error('Failed to stop tracking on punch out:', e?.message || e);
-        }
-      } else {
-        Alert.alert('Ошибка', result.error);
-      }
-
-      // Фоновая до-загрузка фото без блокировки UI
-      uploadOutPromise.then(() => {}).catch(() => {});
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось завершить смену');
     } finally {
       setIsLoading(false);
     }
@@ -1412,19 +1054,6 @@ const MainScreen = ({ onLogout }) => {
   };
 
   useEffect(() => {
-    const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-    const getMonthRange = (offset) => {
-      const now = new Date();
-      const y = now.getFullYear();
-      const m = now.getMonth();
-      const d = new Date(y, m + offset, 1);
-      const start = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
-      const endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      const end = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(endDate)}`;
-      const label = d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
-      return { start, end, label };
-    };
-
     const fetchMonthlyStats = async () => {
       try {
         const userId = currentUser?.user_id;

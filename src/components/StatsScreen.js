@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { API_CONFIG } from '../config/api';
+import { getMonthRange } from '../utils/dateUtils';
 
 export default function StatsScreen({ userId }) {
   const [monthOffset, setMonthOffset] = useState(0);
@@ -9,16 +10,6 @@ export default function StatsScreen({ userId }) {
   const [monthlySuspicious, setMonthlySuspicious] = useState(null);
 
   useEffect(() => {
-    const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-    const getMonthRange = (offset) => {
-      const now = new Date();
-      const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-      const start = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
-      const endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      const end = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(endDate)}`;
-      return { start, end };
-    };
-
     const fetchStats = async () => {
       try {
         if (!userId) return;
