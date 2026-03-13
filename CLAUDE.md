@@ -83,3 +83,17 @@ All API calls go through axios. Endpoints are defined in `src/config/api.js`. Au
 - Always add `accessibilityLabel` to interactive elements
 - Always add `testID` to elements that need test targeting
 - Use `useCallback` for button press handlers
+
+## GitHub Workflow
+
+When making code changes:
+1. Stage changes
+2. Create a git commit
+3. Push to GitHub
+4. Always provide the commit link
+
+Format:
+Commit: <hash>
+Link: https://github.com/<owner>/<repo>/commit/<hash>
+
+If a PR is created, also provide the PR link.
