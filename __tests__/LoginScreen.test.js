@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import LoginScreen from '../src/components/LoginScreen';
+import authService from '../src/services/authService';
 
 // Mock AsyncStorage
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -9,20 +10,23 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   removeItem: jest.fn(),
 }));
 
-// Mock navigation
-const mockNavigation = {
-  navigate: jest.fn(),
-  goBack: jest.fn(),
-};
+jest.mock('../src/services/authService', () => ({
+  __esModule: true,
+  default: {
+    login: jest.fn(),
+  },
+}));
 
 describe('LoginScreen', () => {
+  const mockOnLoginSuccess = jest.fn();
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   test('renders login form correctly', () => {
     const { getByPlaceholderText, getByText } = render(
-      <LoginScreen navigation={mockNavigation} />
+      <LoginScreen onLoginSuccess={mockOnLoginSuccess} />
     );
 
     expect(getByPlaceholderText('(___) ___-__-__')).toBeTruthy();
@@ -32,19 +36,21 @@ describe('LoginScreen', () => {
 
   test('shows error message for empty fields', async () => {
     const { getByText } = render(
-      <LoginScreen navigation={mockNavigation} />
+      <LoginScreen onLoginSuccess={mockOnLoginSuccess} />
     );
 
     const loginButton = getByText('Войти');
     fireEvent.press(loginButton);
 
-    // Add assertions based on your actual validation logic
-    // This test needs to be adjusted based on your component's behavior
+    // Should not call authService.login with empty fields
+    expect(authService.login).not.toHaveBeenCalled();
   });
 
   test('handles successful login', async () => {
+    authService.login.mockResolvedValue({ success: true, data: { user_id: 1 } });
+
     const { getByPlaceholderText, getByText } = render(
-      <LoginScreen navigation={mockNavigation} />
+      <LoginScreen onLoginSuccess={mockOnLoginSuccess} />
     );
 
     const phoneInput = getByPlaceholderText('(___) ___-__-__');
@@ -55,7 +61,7 @@ describe('LoginScreen', () => {
     fireEvent.changeText(passwordInput, '123456');
     fireEvent.press(loginButton);
 
-    // Add assertions based on your actual login logic
-    // This is a basic example - adjust according to your implementation
+    await waitFor(() => expect(authService.login).toHaveBeenCalled());
+    await waitFor(() => expect(mockOnLoginSuccess).toHaveBeenCalledWith({ user_id: 1 }));
   });
 });
