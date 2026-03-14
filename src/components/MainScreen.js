@@ -3,26 +3,20 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   Alert,
-  ActivityIndicator,
   ScrollView,
   Platform,
   AppState,
-  Button,
-  NativeModules,
   Linking,
-  Modal,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { 
-  Button as PaperButton, 
-  FAB, 
+import {
+  Button as PaperButton,
+  FAB,
   IconButton,
   Chip,
   Card,
-  Avatar,
   Provider as PaperProvider,
   Appbar,
   Icon
@@ -30,25 +24,21 @@ import {
 import paperTheme from '../styles/paperTheme';
 import { StatusBar } from 'react-native';
 import authService from '../services/authService';
-import Config from 'react-native-config';
-import { postLocationBatch } from '../api';
 import punchService from '../services/punchService';
 import geoService from '../services/geoService';
-import backgroundService from '../services/backgroundService';
 import cameraService from '../services/cameraService';
-import fileUploadService from '../services/fileUploadService';
 import deviceUtils from '../utils/deviceUtils';
-import { runSequentialPermissionFlow, forceShowBackgroundPermissionDialog, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
+import { runSequentialPermissionFlow, checkNotificationsPermissionOnAppActive, requestBackgroundLocationTwoClicks } from '../services/permissionsService';
 import { getBgGeoInitStatus, getLicenseInfo } from '../location';
-import { canStartShift, humanizeStatus, normalizeStatus, WorkerStatus } from '../helpers/shift';
-import ShiftStatusManager from '../services/shiftStatusService';
-// import { initLocation } from '../location'; // Отключено - инициализация происходит в App.js
-// geo endpoint/test toggles removed
-// DebugBgScreen and BgGeoTestScreen removed - no longer needed
-import { useShiftStore, setFromServer } from '../store/shiftStore';
+import { canStartShift, humanizeStatus, WorkerStatus } from '../helpers/shift';
+import { useShiftStore } from '../store/shiftStore';
 import { guardedAlert } from '../ui/alert';
 import { styles } from './MainScreen.styles';
-import { colors, shadows } from '../styles/colors';
+import { colors } from '../styles/colors';
+import { usePunchOperation } from '../hooks/usePunchOperation';
+import { useShiftManager } from '../hooks/useShiftManager';
+import { useIndicators } from '../hooks/useIndicators';
+import { useMonthlyStats } from '../hooks/useMonthlyStats';
 
 const MainScreen = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -56,28 +46,11 @@ const MainScreen = ({ onLogout }) => {
   const [showAlwaysBanner, setShowAlwaysBanner] = useState(false);
   const isShiftActive = useShiftStore(s => s.isActive);
   const [currentUser, setCurrentUser] = useState(null);
-  const [userStatus, setUserStatus] = useState(WorkerStatus.READY_TO_WORK);
   const currentUserIdRef = useRef(null);
-  // endpoint & test toggles removed
-  const [shiftStatusManager, setShiftStatusManager] = useState(null);
-  const [indicators, setIndicators] = useState({ gps: false, network: false, battery: true, permission: false, notifications: true });
-  const [showUserDetails, setShowUserDetails] = useState(false);
-  const [shiftStart, setShiftStart] = useState(null);
-  const [lastRequestAt, setLastRequestAt] = useState(null);
-  const [onSite, setOnSite] = useState(null);
-  const [shiftDuration, setShiftDuration] = useState(null);
-  const [showAccessPanel, setShowAccessPanel] = useState(false);
-  const [selectedAccessKey, setSelectedAccessKey] = useState(null);
-  const [showQuickMenu, setShowQuickMenu] = useState(false);
-  const [monthlyRecorded, setMonthlyRecorded] = useState(null);
-  const [monthlyApproved, setMonthlyApproved] = useState(null);
-  const [monthlyApprovedHours, setMonthlyApprovedHours] = useState(null);
-  const [monthlyAppCount, setMonthlyAppCount] = useState(null);
-  const [monthlySuspicious, setMonthlySuspicious] = useState(null);
-  const [monthOffset, setMonthOffset] = useState(0);
+  const { shiftStatusManager, userStatus, shiftStart, lastRequestAt, shiftDuration, initManager } = useShiftManager(currentUser);
+  const { indicators, onSite, refreshIndicators } = useIndicators();
+  const { monthlyStats, monthOffset, setMonthOffset } = useMonthlyStats(currentUser?.user_id);
   const [menuModalVisible, setMenuModalVisible] = useState(false);
-  const [accessModalVisible, setAccessModalVisible] = useState(false);
-  const [showHeaderBadges, setShowHeaderBadges] = useState(false);
   const [shiftsList, setShiftsList] = useState([]);
   // Селфи-модал отключен, используем image-picker
 
@@ -314,7 +287,15 @@ const MainScreen = ({ onLogout }) => {
       return null;
     }
   };
-  
+
+  // Punch In / Punch Out через общий хук
+  const { handlePunchIn, handlePunchOut } = usePunchOperation({
+    currentUser,
+    shiftStatusManager,
+    captureSelfie,
+    setIsLoading,
+  });
+
   // Guards для предотвращения повторных вызовов
   const batteryOptimizationRequested = useRef(false);
   const locationPermissionsRequested = useRef(false);
@@ -323,114 +304,24 @@ const MainScreen = ({ onLogout }) => {
     const loadUserData = async () => {
       console.log('[MainScreen] loadUserData: starting...');
       const user = await authService.getCurrentUser();
-      console.log('[MainScreen] loadUserData: got user:', user);
       if (user) {
-        console.log('[MainScreen] loadUserData: setting currentUser:', user);
         setCurrentUser(user);
         currentUserIdRef.current = user.user_id;
-        
-        // Инициализируем ShiftStatusManager (без polling)
-        const deviceId = await deviceUtils.getDeviceId();
-        const manager = new ShiftStatusManager(user.user_id || 123, deviceId);
-        
+
         // Принудительно сбрасываем BGGeo конфигурацию для исправления locationTemplate
         try {
           const { forceResetBGGeo, checkBGGeoConfig } = require('../../force_reset_bggeo');
-          console.log('🔄 Проверяем конфигурацию BGGeo...');
           const config = await checkBGGeoConfig();
           if (config.hasMathFloor) {
-            console.log('🔧 Обнаружена старая конфигурация, выполняем сброс...');
             await forceResetBGGeo();
           }
-        } catch (e) {
-          console.log('❌ Ошибка сброса BGGeo:', e);
-        }
-        
-        // Устанавливаем callback для обновления UI
-        manager.setStatusUpdateCallback(async (data) => {
-          console.log('=== SHIFT STATUS UPDATE ===');
-          console.log('Received data:', data);
-          try { setFromServer(data); } catch {}
-          
-          const hasActiveShift = data.has_active_shift || false;
-          const workerStatus = (data?.worker?.worker_status) || data?.worker_status || 'активен';
+        } catch {}
 
-          // Вытаскиваем начало смены и "последний запрос" (если сервер вернул)
-          try {
-            const activeStart = data?.active_shift?.shift_start || null;
-            const lastStart = data?.last_shift?.shift_start || null;
-            const s = hasActiveShift ? activeStart : (activeStart || lastStart);
-            setShiftStart(s || null);
-          } catch {}
-          try {
-            // Последний запрос к /api/db_save/ — берём время последнего локального успешного аплоада, fallback к серверному
-            // const lrLocal = global?.__LAST_DB_SAVE_AT__ || null;
-            const lrServer = data?.worker?.last_geo_timestamp || data?.last_request || null;
-            // setLastRequestAt(lrLocal || lrServer || null);
-             setLastRequestAt(lrServer || null);
-          } catch {}
-          
-          // Вычисляем продолжительность смены от начала до последней точки
-          try {
-            const startTime = hasActiveShift ? (data?.active_shift?.shift_start || null) : null;
-            const lastTime = data?.worker?.last_geo_timestamp || data?.last_request || null;
-            
-            if (startTime && lastTime) {
-              const start = new Date(startTime).getTime();
-              const last = new Date(lastTime).getTime();
-              if (!isNaN(start) && !isNaN(last) && last > start) {
-                const durationHours = (last - start) / (1000 * 60 * 60);
-                setShiftDuration(durationHours);
-              } else {
-                setShiftDuration(null);
-              }
-            } else {
-              setShiftDuration(null);
-            }
-          } catch {}
-          
-          setUserStatus(normalizeStatus(workerStatus));
-          
-          console.log('Updated state:', {
-            isShiftActive: hasActiveShift,
-            userStatus: workerStatus,
-            activeShiftId: data?.active_shift?.id || data?.active_shift?.shift_id || null,
-            sourceOfTruth: 'server'
-          });
-          
-          // Автоматически запускаем/останавливаем отслеживание геолокации
-          try {
-            const { ensureTracking, stopTracking } = require('../location.js');
-            if (hasActiveShift) {
-              // Используем user_id из данных смены, если currentUser еще не загружен
-              const userId = currentUser?.user_id || data.worker?.user_id;
-              if (userId) {
-                await ensureTracking(userId);
-                console.log('Auto-start tracking based on active shift for user:', userId);
-              } else {
-                console.log('Cannot start tracking: user_id is not available in currentUser or shift data');
-              }
-            } else {
-              await stopTracking();
-              console.log('Auto-stop tracking based on inactive shift');
-            }
-          } catch (e) {
-            console.log('Tracking sync with shift status failed:', e?.message || e);
-          }
-        });
-        
-        // Загружаем начальный статус смены
-        try {
-          const initialStatus = await manager.getCurrentStatus();
-          manager.updateUI(initialStatus);
-        } catch (e) {
-          console.log('Failed to load initial shift status:', e?.message || e);
-        }
-        
-        setShiftStatusManager(manager);
+        // Инициализируем ShiftStatusManager через хук
+        await initManager(user);
       }
     };
-    
+
     loadUserData();
     // endpoint/test toggles removed
     // Убираем дублирующий запрос разрешений - runSequentialPermissionFlow() уже включает запрос геолокации
@@ -531,95 +422,7 @@ const MainScreen = ({ onLogout }) => {
     refreshStatusOnFocus();
   }, [currentUser?.user_id, shiftStatusManager]);
 
-  // Индикаторы: GPS / сеть / энергосбережение / разрешения
-  const refreshIndicators = useCallback(async () => {
-    try {
-      let permissionOk = false;
-      try {
-        const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
-        if (Platform.OS === 'android') {
-          const bg = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
-          const fine = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION);
-          permissionOk = (bg === RESULTS.GRANTED) && (fine === RESULTS.GRANTED);
-          console.log('[Permissions] Android - Background:', bg, 'Fine:', fine, 'PermissionOk:', permissionOk);
-        } else {
-          const always = await check(PERMISSIONS.IOS.LOCATION_ALWAYS);
-          const whenInUse = await check(PERMISSIONS.IOS.LOCATION_WHEN_IN_USE);
-          permissionOk = (always === RESULTS.GRANTED) && (whenInUse === RESULTS.GRANTED);
-          console.log('[Permissions] iOS - Always:', always, 'WhenInUse:', whenInUse, 'PermissionOk:', permissionOk);
-        }
-      } catch (e) {
-        console.log('[Permissions] Error checking permissions:', e);
-      }
-
-      let batteryOk = true;
-      try {
-        const { getBatteryWhitelistStatus } = require('../location.js');
-        const status = await getBatteryWhitelistStatus();
-        batteryOk = Platform.OS !== 'android' ? true : !!status?.ignored;
-      } catch {}
-
-      let networkOk = false;
-      try {
-        const net = await deviceUtils.getNetworkInfo();
-        networkOk = !!net?.isConnected;
-      } catch {}
-
-      let notificationsOk = true;
-      try {
-        const { check, RESULTS, PERMISSIONS } = require('react-native-permissions');
-        if (Platform.OS === 'android' && Platform.Version >= 33) {
-          const notif = await check(PERMISSIONS.ANDROID.POST_NOTIFICATIONS);
-          notificationsOk = notif === RESULTS.GRANTED;
-        } else {
-          notificationsOk = true;
-        }
-      } catch {}
-
-      let gpsOk = false;
-      try {
-        gpsOk = await deviceUtils.isLocationAvailable();
-      } catch {}
-
-      const newIndicators = { gps: !!gpsOk, network: !!networkOk, battery: !!batteryOk, permission: !!permissionOk, notifications: !!notificationsOk };
-      console.log('[Indicators] Updated indicators:', JSON.stringify(newIndicators, null, 2));
-      
-      // Проверяем, изменились ли индикаторы
-      const hasChanges = Object.keys(newIndicators).some(key => newIndicators[key] !== indicators[key]);
-      if (hasChanges) {
-        console.log('[Indicators] Indicators changed, updating state');
-      } else {
-        console.log('[Indicators] No changes in indicators');
-      }
-      
-      setIndicators(newIndicators);
-
-      // Индикатор "на объекте" (заглушка через env: SITE_LAT, SITE_LON, SITE_RADIUS_M)
-      try {
-        const siteLat = parseFloat(Config.SITE_LAT);
-        const siteLon = parseFloat(Config.SITE_LON);
-        const siteRadius = parseFloat(Config.SITE_RADIUS_M || '150');
-        if (!isNaN(siteLat) && !isNaN(siteLon) && !isNaN(siteRadius)) {
-          const loc = await geoService.getCurrentLocation();
-          const toRad = (d) => (d * Math.PI) / 180;
-          const R = 6371000;
-          const dLat = toRad((loc.latitude || 0) - siteLat);
-          const dLon = toRad((loc.longitude || 0) - siteLon);
-          const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(siteLat)) * Math.cos(toRad(loc.latitude || 0)) * Math.sin(dLon/2) * Math.sin(dLon/2);
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-          const distance = R * c;
-          setOnSite(distance <= siteRadius);
-        } else {
-          setOnSite(null);
-        }
-      } catch {
-        setOnSite(null);
-      }
-    } catch (e) {
-      // fail-safe: не обновляем state при исключениях
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // refreshIndicators provided by useIndicators hook
 
   // Функция для обновления всех данных при pull-to-refresh
   const refreshAllData = useCallback(async () => {
@@ -707,213 +510,6 @@ const MainScreen = ({ onLogout }) => {
     return () => clearInterval(timer);
   }, [refreshIndicators]);
 
-  // Проверка статуса работника и смены
-  // Функция checkWorkerStatus удалена - теперь используется ShiftStatusManager
-
-  // Начало смены
-  const handlePunchIn = async () => {
-    if (!currentUser) {
-      Alert.alert('Ошибка', 'Пользователь не найден');
-      return;
-    }
-
-    if (!shiftStatusManager) {
-      Alert.alert('Ошибка', 'Сервис статуса смены не инициализирован');
-      return;
-    }
-
-    // Устанавливаем состояние загрузки в самом начале
-    setIsLoading(true);
-
-    // Проверяем текущий статус через новый сервис
-    try {
-      const currentStatus = await shiftStatusManager.getCurrentStatus();
-      console.log('Current status before punch in:', currentStatus);
-      
-      if (currentStatus.has_active_shift) {
-        Alert.alert('Смена уже активна', 'У вас уже есть активная смена');
-        setIsLoading(false);
-        return;
-      }
-      
-      // Проверяем статус рабочего
-      const workerStatus = (currentStatus?.worker?.worker_status) || currentStatus?.worker_status || 'активен';
-      const normalized = normalizeStatus(workerStatus);
-      
-      if (normalized === WorkerStatus.BLOCKED) {
-        Alert.alert('Доступ заблокирован', 'Ваш пользователь заблокирован администратором. Обратитесь к администратору.');
-        setIsLoading(false);
-        return;
-      }
-      
-      if (normalized === WorkerStatus.FIRED) {
-        Alert.alert('Доступ запрещен', 'Ваш пользователь уволен.');
-        setIsLoading(false);
-        return;
-      }
-      
-      if (!canStartShift(normalized)) {
-        Alert.alert('Доступ запрещен', 'Ваш статус не позволяет начать смену.');
-        setIsLoading(false);
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking current status:', error);
-      Alert.alert('Ошибка', 'Не удалось проверить текущий статус.');
-      setIsLoading(false);
-      return;
-    }
-
-    // Затем проверяем разрешения на геолокацию (быстрый поток в 2 клика)
-    try {
-      const hasAlways = await requestBackgroundLocationTwoClicks();
-      if (!hasAlways) {
-        Alert.alert('Фоновая геолокация', 'Для начала смены включите «Разрешать всегда» в настройках.');
-        setIsLoading(false);
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking location permissions:', error);
-      Alert.alert('Ошибка разрешений', 'Не удалось проверить/включить фоновую геолокацию.');
-      setIsLoading(false);
-      return;
-    }
-
-    // Предстарт: поднимаем трекинг перед отправкой punch, чтобы иметь активный FG-сервис
-    let preStarted = false;
-    let ensureTrackingRef = null;
-    let stopTrackingRef = null;
-    try {
-      const loc = require('../location.js');
-      ensureTrackingRef = loc.ensureTracking;
-      stopTrackingRef = loc.stopTracking;
-    } catch {}
-    if (currentUser?.user_id && ensureTrackingRef) {
-      try {
-        await ensureTrackingRef(currentUser.user_id);
-        preStarted = true;
-      } catch (e) {
-        console.log('Pre-start ensureTracking failed:', e?.message || e);
-      }
-    }
-
-    try {
-      // Селфи через VisionCamera
-      const selfie = await captureSelfie();
-      if (!selfie || !selfie.uri) {
-        if (preStarted && stopTrackingRef) { try { await stopTrackingRef(); } catch {} }
-        Alert.alert('Требуется фото', 'Для начала смены необходимо сделать фото.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Получаем текущую геолокацию
-      const location = await geoService.getCurrentLocation();
-
-      // Добавляем геопозицию с правильным порядком параметров
-      console.log('Adding geo point for punch in:', location);
-      
-      // Отладочное логирование для проверки данных о высоте
-      console.log('=== ALTITUDE DEBUG ===');
-      console.log('location.altitude:', location.altitude);
-      console.log('location.altitude_msl:', location.altitude_msl);
-      console.log('location.accuracy:', location.accuracy);
-      console.log('=== END DEBUG ===');
-
-      // Получаем точные данные о высоте
-      const altitudeData = geoService.getAccurateAltitudeData(location);
-      const geoPoint = geoService.addGeoPoint(
-        location.latitude,    // lat
-        location.longitude,   // lon
-        altitudeData.alt,     // alt
-        altitudeData.altmsl,  // altMsl
-        altitudeData.hasalt,  // hasAlt
-        altitudeData.hasaltmsl, // hasAltMsl
-        altitudeData.hasaltmslaccuracy, // hasAltMslAccuracy
-        altitudeData.mslaccuracyMeters  // mslAccuracyMeters
-      );
-      console.log('Added geo point for punch in:', geoPoint);
-
-      // Параллелим загрузку фото и сохранение геоданных, punch отправляем сразу
-      const tsSec = Math.floor(Date.now() / 1000);
-      const phoneImeiIn = await deviceUtils.getDeviceId();
-      const photoNameIn = `punch_1_${tsSec}.jpg`;
-
-      const uploadInPromise = fileUploadService.uploadShiftPhoto(
-        {
-          uri: selfie.uri,
-          type: selfie.type || 'image/jpeg',
-          fileName: photoNameIn,
-        },
-        currentUser.user_id || 123,
-        phoneImeiIn,
-        'start'
-      ).then((res) => {
-        if (!res?.success) {
-          console.log('Shift start photo upload failed:', res?.error || res);
-        }
-        return res;
-      }).catch((e) => {
-        console.log('Shift start photo upload exception:', e?.message || e);
-      });
-
-      const saveGeoInPromise = geoService.saveGeoData(
-        currentUser.user_id || 123,
-        1,
-        phoneImeiIn
-      ).catch((e) => console.log('saveGeoData (in) error:', e?.message || e));
-
-      // Отправляем punch немедленно с синхронизированным именем фото и timestamp
-      const result = await shiftStatusManager.sendPunch(1, photoNameIn, tsSec); // 1 = начало смены
-
-      if (result.success) {
-        Alert.alert('Успех', 'Смена начата!');
-        
-        // Дополнительно обновляем UI после успешного punch
-        try {
-          console.log('[MainScreen] Manually refreshing status after successful punch in...');
-          const { refreshShiftStatusNow } = require('../services/shiftStatusService');
-          const updatedStatus = await refreshShiftStatusNow(currentUser.user_id);
-          if (shiftStatusManager && shiftStatusManager.updateUI) {
-            shiftStatusManager.updateUI(updatedStatus);
-          }
-        } catch (e) {
-          console.log('[MainScreen] Failed to manually refresh status after punch in:', e?.message || e);
-        }
-        
-        // Запускаем отслеживание геолокации при начале смены
-        try {
-          const { ensureTracking } = require('../location.js');
-          if (currentUser?.user_id) {
-            await ensureTracking(currentUser.user_id);
-            console.log('Location tracking started on punch in for user:', currentUser.user_id);
-          } else {
-            console.log('Cannot start tracking on punch in: currentUser.user_id is not available');
-          }
-          
-          // Инициализируем backgroundService для фоновой отправки
-          console.log('Initializing backgroundService for punch in...');
-          const phoneImei = await deviceUtils.getDeviceId();
-          await backgroundService.initialize(currentUser.user_id, 1, phoneImei, __DEV__);
-          console.log('BackgroundService initialized for punch in');
-        } catch (e) {
-          console.error('Failed to start tracking on punch in:', e?.message || e);
-        }
-      } else {
-        if (preStarted && stopTrackingRef) { try { await stopTrackingRef(); } catch {} }
-        Alert.alert('Ошибка', result.error);
-      }
-
-      // Не блокируем UI ожиданием — фоновые операции сами завершатся
-      Promise.allSettled([uploadInPromise, saveGeoInPromise]).then(() => {}).catch(() => {});
-    } catch (error) {
-      if (preStarted && stopTrackingRef) { try { await stopTrackingRef(); } catch {} }
-      Alert.alert('Ошибка', 'Не удалось начать смену');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Запрос на разблокировку
   const handleRequestUnblock = async () => {
     if (!currentUser) return;
@@ -922,228 +518,26 @@ const MainScreen = ({ onLogout }) => {
       const res = await punchService.requestUnblock(currentUser.user_id || 123);
       if (res.success) {
         Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-        // Статус пользователя обновится автоматически через ShiftStatusManager
       } else {
         Alert.alert(
-          'Ошибка отправки запроса', 
+          'Ошибка отправки запроса',
           res.error || 'Не удалось отправить запрос',
           [
-            { text: 'Повторить', onPress: () => {
-              // Рекурсивно вызываем функцию для повтора
-              setTimeout(() => {
-                if (currentUser) {
-                  const retryUnblock = async () => {
-                    setIsLoading(true);
-                    try {
-                      const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
-                      if (retryRes.success) {
-                        Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                        // Статус пользователя обновится автоматически через ShiftStatusManager
-                      } else {
-                        Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
-                      }
-                    } catch (e) {
-                      Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
-                    } finally {
-                      setIsLoading(false);
-                    }
-                  };
-                  retryUnblock();
-                }
-              }, 100);
-            }},
-            { text: 'Отмена', style: 'cancel' }
+            { text: 'Повторить', onPress: () => handleRequestUnblock() },
+            { text: 'Отмена', style: 'cancel' },
           ]
         );
       }
     } catch (e) {
       console.error('Request unblock error:', e);
       Alert.alert(
-        'Ошибка сети', 
+        'Ошибка сети',
         'Не удалось отправить запрос. Проверьте интернет-соединение.',
         [
-          { text: 'Повторить', onPress: () => {
-            // Рекурсивно вызываем функцию для повтора
-            setTimeout(() => {
-              if (currentUser) {
-                const retryUnblock = async () => {
-                  setIsLoading(true);
-                  try {
-                    const retryRes = await punchService.requestUnblock(currentUser.user_id || 123);
-                    if (retryRes.success) {
-                      Alert.alert('Готово', 'Запрос на разблокировку отправлен');
-                      // Статус пользователя обновится автоматически через ShiftStatusManager
-                    } else {
-                      Alert.alert('Ошибка', retryRes.error || 'Не удалось отправить запрос');
-                    }
-                  } catch (e) {
-                    Alert.alert('Ошибка', 'Не удалось отправить запрос. Повторите позже.');
-                  } finally {
-                    setIsLoading(false);
-                  }
-                };
-                retryUnblock();
-              }
-            }, 100);
-          }},
-          { text: 'Отмена', style: 'cancel' }
+          { text: 'Повторить', onPress: () => handleRequestUnblock() },
+          { text: 'Отмена', style: 'cancel' },
         ]
       );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Завершение смены
-  const handlePunchOut = async () => {
-    if (!currentUser) {
-      Alert.alert('Ошибка', 'Пользователь не найден');
-      return;
-    }
-
-    if (!shiftStatusManager) {
-      Alert.alert('Ошибка', 'Сервис статуса смены не инициализирован');
-      return;
-    }
-
-    // Проверяем текущий статус через новый сервис
-    try {
-      const currentStatus = await shiftStatusManager.getCurrentStatus();
-      console.log('Current status before punch out:', currentStatus);
-      
-      if (!currentStatus.has_active_shift) {
-        Alert.alert('Нет активной смены', 'У вас нет активной смены для завершения');
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking current status:', error);
-      Alert.alert('Ошибка', 'Не удалось проверить текущий статус.');
-      return;
-    }
-
-    // Затем проверяем разрешения на геолокацию (быстрый поток в 2 клика)
-    try {
-      const hasAlways = await requestBackgroundLocationTwoClicks();
-      if (!hasAlways) {
-        Alert.alert('Фоновая геолокация', 'Для завершения смены включите «Разрешать всегда» в настройках.');
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking location permissions:', error);
-      Alert.alert('Ошибка разрешений', 'Не удалось проверить/включить фоновую геолокацию.');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // Селфи через VisionCamera
-      const selfie = await captureSelfie();
-      if (!selfie || !selfie.uri) {
-        Alert.alert('Требуется фото', 'Для завершения смены необходимо сделать фото.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Получаем текущую геолокацию
-      const location = await geoService.getCurrentLocation();
-
-      // Добавляем финальную геопозицию с правильным порядком параметров
-      console.log('Adding geo point for punch out:', location);
-
-      // Получаем точные данные о высоте
-      const altitudeData = geoService.getAccurateAltitudeData(location);
-      
-      // Отладочное логирование для проверки данных о высоте
-      console.log('=== ALTITUDE DEBUG ===');
-      console.log('location.altitude:', location.altitude);
-      console.log('location.altitude_msl:', location.altitude_msl);
-      console.log('location.accuracy:', location.accuracy);
-      console.log('=== END DEBUG ===');
-
-      const geoPoint = geoService.addGeoPoint(
-        location.latitude,    // lat
-        location.longitude,   // lon
-        altitudeData.alt,     // alt
-        altitudeData.altmsl,  // altMsl
-        altitudeData.hasalt,  // hasAlt
-        altitudeData.hasaltmsl, // hasAltMsl
-        altitudeData.hasaltmslaccuracy, // hasAltMslAccuracy
-        altitudeData.mslaccuracyMeters  // mslAccuracyMeters
-      );
-      console.log('Added geo point for punch out:', geoPoint);
-
-      // Параллелим загрузку фото и сохранение геоданных, punch отправляем сразу
-      const tsSecOut = Math.floor(Date.now() / 1000);
-      const phoneImeiOut = await deviceUtils.getDeviceId();
-      const photoNameOut = `punch_0_${tsSecOut}.jpg`;
-
-      const uploadOutPromise = fileUploadService.uploadShiftPhoto(
-        {
-          uri: selfie.uri,
-          type: selfie.type || 'image/jpeg',
-          fileName: photoNameOut,
-        },
-        currentUser.user_id || 123,
-        phoneImeiOut,
-        'end'
-      ).then((res) => {
-        if (!res?.success) {
-          console.log('Shift end photo upload failed:', res?.error || res);
-        }
-        return res;
-      }).catch((e) => {
-        console.log('Shift end photo upload exception:', e?.message || e);
-      });
-
-      const saveGeoOutPromise = geoService.saveGeoData(
-        currentUser.user_id || 123,
-        1,
-        phoneImeiOut
-      ).catch((e) => console.log('saveGeoData (out) error:', e?.message || e));
-
-      // Отправляем punch немедленно с синхронизированным именем фото и timestamp
-      const result = await shiftStatusManager.sendPunch(0, photoNameOut, tsSecOut); // 0 = завершение смены
-
-      if (result.success) {
-        Alert.alert('Успех', 'Смена завершена!');
-        
-        // Дополнительно обновляем UI после успешного punch
-        try {
-          console.log('[MainScreen] Manually refreshing status after successful punch out...');
-          const { refreshShiftStatusNow } = require('../services/shiftStatusService');
-          const updatedStatus = await refreshShiftStatusNow(currentUser.user_id);
-          if (shiftStatusManager && shiftStatusManager.updateUI) {
-            shiftStatusManager.updateUI(updatedStatus);
-          }
-        } catch (e) {
-          console.log('[MainScreen] Failed to manually refresh status after punch out:', e?.message || e);
-        }
-        
-        // Сначала дожидаемся выгрузки геоданных, затем останавливаем трекинг
-        try {
-          console.log('[MainScreen] Waiting for geo data upload before stopping tracking...');
-          await saveGeoOutPromise;
-          console.log('[MainScreen] Geo data upload completed');
-        } catch (e) {
-          console.log('[MainScreen] Geo data upload failed:', e?.message || e);
-        }
-        
-        // Останавливаем отслеживание геолокации при завершении смены
-        try {
-          const { stopTracking } = require('../location.js');
-          await stopTracking();
-          console.log('Location tracking stopped on punch out');
-        } catch (e) {
-          console.error('Failed to stop tracking on punch out:', e?.message || e);
-        }
-      } else {
-        Alert.alert('Ошибка', result.error);
-      }
-
-      // Фоновая до-загрузка фото без блокировки UI
-      uploadOutPromise.then(() => {}).catch(() => {});
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось завершить смену');
     } finally {
       setIsLoading(false);
     }
@@ -1411,84 +805,7 @@ const MainScreen = ({ onLogout }) => {
     } catch { return '—'; }
   };
 
-  useEffect(() => {
-    const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-    const getMonthRange = (offset) => {
-      const now = new Date();
-      const y = now.getFullYear();
-      const m = now.getMonth();
-      const d = new Date(y, m + offset, 1);
-      const start = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
-      const endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      const end = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(endDate)}`;
-      const label = d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
-      return { start, end, label };
-    };
-
-    const fetchMonthlyStats = async () => {
-      try {
-        const userId = currentUser?.user_id;
-        if (!userId) return;
-        const { API_CONFIG } = require('../config/api');
-        
-        // Получаем смены пользователя через новый endpoint
-        const shiftsRes = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SHIFTS}?user_id=${userId}`, {
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_CONFIG.API_TOKEN}` },
-        });
-        
-        let list = [];
-        if (shiftsRes.ok) {
-          const shiftsData = await shiftsRes.json();
-          // Обрабатываем структуру ответа: { success: true, shifts: [...], total_count: 25, ... }
-          if (shiftsData.success && Array.isArray(shiftsData.shifts)) {
-            list = shiftsData.shifts;
-          } else if (Array.isArray(shiftsData)) {
-            list = shiftsData;
-          } else if (Array.isArray(shiftsData?.results)) {
-            list = shiftsData.results;
-          }
-        }
-        
-        // Фильтруем смены по месяцу для статистики
-        const { start, end } = getMonthRange(monthOffset);
-        const monthlyList = list.filter(shift => {
-          const shiftDate = shift.shift_start || shift.date;
-          if (!shiftDate) return false;
-          const date = new Date(shiftDate);
-          const monthStart = new Date(start);
-          const monthEnd = new Date(end);
-          return date >= monthStart && date <= monthEnd;
-        });
-        const total = monthlyList.length;
-        let approved = 0;
-        let approvedHours = 0;
-        let appCount = 0;
-        let suspicious = 0;
-        const toHrs = (ms) => ms / (1000 * 60 * 60);
-        for (const x of monthlyList) {
-          const status = (x.shift_status || x.status || '').toString().toLowerCase();
-          const isApproved = status.includes('approved') || status.includes('normal') || status.includes('утверж');
-          if (isApproved) approved += 1;
-          let hrs = x.shift_duration || x.shift_duration_hours || x.duration_hours || null;
-          if (hrs == null && x.shift_start && x.shift_end) {
-            const st = new Date(x.shift_start).getTime();
-            const en = new Date(x.shift_end).getTime();
-            if (!isNaN(st) && !isNaN(en) && en > st) hrs = toHrs(en - st);
-          }
-          if (isApproved && typeof hrs === 'number') approvedHours += hrs;
-          const source = (x.source || x.submitted_via || x.created_by || '').toString().toLowerCase();
-          if (source.includes('app') || source.includes('mobile')) appCount += 1;
-          if (status.includes('suspicious') || status.includes('аном') || (typeof hrs === 'number' && hrs < 0.25)) suspicious += 1;
-        }
-        setMonthlyRecorded(total);
-        setMonthlyApproved(approved);
-        setMonthlyApprovedHours(approvedHours ? Number(approvedHours.toFixed(1)) : 0);
-        setMonthlyAppCount(appCount);
-        setMonthlySuspicious(suspicious);
-      } catch {}
-    };
-    fetchMonthlyStats();
-  }, [currentUser, monthOffset]);
+  // Monthly stats loaded by useMonthlyStats hook
 
   // Загрузка всех смен пользователя для отображения в таблице
   useEffect(() => {

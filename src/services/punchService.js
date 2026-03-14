@@ -2,6 +2,7 @@ import { API_CONFIG } from '../config/api';
 import { setCachedShiftStatus, getCachedShiftStatus } from '../store/shiftStore';
 import httpClient from '../api/httpClient';
 import { normalizeApiError } from '../utils/apiError';
+import { unixSec } from '../utils/dateUtils';
 
 function genIdemp() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -13,7 +14,7 @@ class PunchService {
       const response = await httpClient.post(API_CONFIG.ENDPOINTS.PUNCH, {
         api_token: API_CONFIG.API_TOKEN,
         user_id: userId,
-        timestamp: Math.floor(Date.now() / 1000),
+        timestamp: unixSec(),
         status: 1,
         phone_imei: phoneImei,
         photo_name: photoName,
@@ -35,7 +36,7 @@ class PunchService {
       const response = await httpClient.post(API_CONFIG.ENDPOINTS.PUNCH, {
         api_token: API_CONFIG.API_TOKEN,
         user_id: userId,
-        timestamp: Math.floor(Date.now() / 1000),
+        timestamp: unixSec(),
         status: 0,
         phone_imei: phoneImei,
         photo_name: photoName,
@@ -54,7 +55,7 @@ class PunchService {
 
   async autoPunchOut(userId, phoneImei) {
     try {
-      const timestamp = Math.floor(Date.now() / 1000);
+      const timestamp = unixSec();
       const response = await httpClient.post(API_CONFIG.ENDPOINTS.PUNCH, {
         api_token: API_CONFIG.API_TOKEN,
         user_id: userId,

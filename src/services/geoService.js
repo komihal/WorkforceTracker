@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { getGeoConfig } from '../config/geoConfig';
 import { setLastGeoSaveAt } from '../store/shiftStore';
 import httpClient from '../api/httpClient';
+import { unixSecStr } from '../utils/dateUtils';
 
 class GeoService {
   constructor() {
@@ -25,7 +26,7 @@ class GeoService {
     const geoPoint = {
       lat: lat,
       lon: lon,
-      utm: Math.floor(Date.now() / 1000).toString(), // Исправлено: должно быть строкой согласно требованиям бекенда
+      utm: unixSecStr(),
       alt: alt || 0,
       altmsl: altMsl || 0,
       hasalt: hasAlt || false,
@@ -90,16 +91,11 @@ class GeoService {
       );
 
       if (response?.data && (response.data.success === true || response.status >= 200 && response.status < 300)) {
-        // webhook monitoring disabled
-        
-        // Очищаем отправленные данные
         this.geoData = [];
         setLastGeoSaveAt(new Date().toISOString());
         console.log('[GeoService] Geo data uploaded successfully');
         return { success: true, data: response.data };
       } else {
-        // webhook monitoring disabled
-        
         return { success: false, error: response.data.message || 'Ошибка сохранения геоданных' };
       }
     } catch (error) {

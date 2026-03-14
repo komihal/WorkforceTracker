@@ -3,7 +3,7 @@ let BGGeo;
 
 import { AppState, Platform } from 'react-native';
 import Config from 'react-native-config';
-import { sendLocationToWebhook as sendLocationToWebhookApi, sendToWebhook as sendToWebhookApi } from './config/api';
+import { API_CONFIG, sendLocationToWebhook as sendLocationToWebhookApi, sendToWebhook as sendToWebhookApi } from './config/api';
 import { getGeoConfig } from './config/geoConfig';
 import { ensureBatteryOptimizationDisabled } from './utils/batteryOptimization';
 
@@ -71,7 +71,7 @@ async function sendRemoteLogs() {
       appLogs: global.__APP_LOGS__ || []
     };
 
-    const response = await fetch('https://api.tabelshik.com/webhook/logs', {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/webhook/logs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -221,6 +221,7 @@ let isHandlingPermissionRevocation = false;
 let lastPermissionPromptAt = 0;
 let listenersRegistered = false;
 let batteryCheckDone = false;
+let remoteLogIntervalId = null;
 
 // Упрощённые переменные (убраны неиспользуемые)
 let lastLocationEventHash = '';
@@ -465,18 +466,18 @@ export async function initLocation() {
       autoSync: true,
       batchSync: true,
       autoSyncThreshold: geoConfig.AUTO_SYNC_THRESHOLD,
-      url: 'https://api.tabelshik.com/api/db_save/',
+      url: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.DB_SAVE}`,
       httpTimeout: 60000,
       maxRecordsToPersist: 10000,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${Config?.API_TOKEN || 'wqHJerK834'}`
+        'Authorization': `Bearer ${Config?.API_TOKEN || ''}`
       },
       // Формирование тела запроса через locationTemplate + httpRootProperty + params
       method: 'POST',
       httpRootProperty: "geo_array",
       params: {
-        api_token: Config?.API_TOKEN || 'wqHJerK834',
+        api_token: Config?.API_TOKEN || '',
         user_id: currentUserId || 0,
         place_id: currentPlaceId || 0,
         phone_imei: currentPhoneImei || 'unknown'
@@ -521,7 +522,8 @@ export async function initLocation() {
     logToRemote(`BGGeo configured: autoSync=${currentConfig.autoSync}, batchSync=${currentConfig.batchSync}, threshold=${currentConfig.autoSyncThreshold}`, 'info');
 
     // Настраиваем периодическую отправку логов (каждые 5 минут)
-    setInterval(() => {
+    if (remoteLogIntervalId) clearInterval(remoteLogIntervalId);
+    remoteLogIntervalId = setInterval(() => {
       sendRemoteLogs().catch(() => { });
     }, 5 * 60 * 1000);
 
@@ -915,13 +917,13 @@ export async function startTracking(userId) {
   await BGGeo.setConfig({
     distanceFilter: geoConfig.DISTANCE_FILTER,
     heartbeatInterval: geoConfig.HEARTBEAT_INTERVAL,
-    url: 'https://api.tabelshik.com/api/db_save/',
+    url: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.DB_SAVE}`,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${Config?.API_TOKEN || 'wqHJerK834'}`
+      'Authorization': `Bearer ${Config?.API_TOKEN || ''}`
     },
     params: {
-      api_token: Config?.API_TOKEN || 'wqHJerK834',
+      api_token: Config?.API_TOKEN || '',
       user_id: userId || 0,
       place_id: currentPlaceId || 1,
       phone_imei: currentPhoneImei || 'unknown'
@@ -1198,7 +1200,7 @@ async function testFetch() {
 async function testRealApi() {
   try {
     const testGeoData = {
-      api_token: 'wqHJerK834',
+      api_token: Config?.API_TOKEN || '',
       user_id: currentUserId || 999,
       place_id: currentPlaceId || 1,
       phone_imei: currentPhoneImei || 'test_imei',
@@ -1228,7 +1230,7 @@ async function testRealApi() {
     }, null, 2));
     console.log('='.repeat(80));
 
-    const response = await fetch('https://api.tabelshik.com/api/db_save/', {
+    const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.DB_SAVE}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1279,13 +1281,13 @@ export async function forceReconfigureBgGeo() {
     // Обновляем конфигурацию с новым locationTemplate
     await BGGeo.setConfig({
       locationTemplate: createLocationTemplate(),
-      url: 'https://api.tabelshik.com/api/db_save/',
+      url: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.DB_SAVE}`,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${Config?.API_TOKEN || 'wqHJerK834'}`
+        'Authorization': `Bearer ${Config?.API_TOKEN || ''}`
       },
       params: {
-        api_token: Config?.API_TOKEN || 'wqHJerK834',
+        api_token: Config?.API_TOKEN || '',
         user_id: currentUserId || 0,
         place_id: currentPlaceId || 1,
         phone_imei: currentPhoneImei || 'unknown'

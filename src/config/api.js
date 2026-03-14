@@ -70,7 +70,7 @@ export const sendToWebhook = async (data, type = 'general') => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-      timeout: WEBHOOK_CONFIG.TIMEROUT || WEBHOOK_CONFIG.TIMEOUT,
+      timeout: WEBHOOK_CONFIG.TIMEOUT,
     });
 
     if (response.ok) {
